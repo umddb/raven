@@ -1,0 +1,125 @@
+syntax = "proto3";
+
+message FileObject {
+    string path = 1;
+    optional string format = 2;
+    optional int64 modification_time = 3;
+    optional string tag = 4;
+    optional int32 size = 5;
+}
+
+message TableObject {
+    string workspace_name = 1;
+    string db_name = 2;
+    string table_name = 3;
+    int64 table_obj_id = 4;
+    int64 snapshot_obj_id = 5;
+    int32 snapshot_vid = 6;
+    string create_time = 7;
+    string schema = 8;
+    string table_type = 9;
+}
+
+message GetTableRequest {
+    string workspace_name = 1;
+    string db_name = 2;
+    string table_name = 3;
+    optional int32 vid = 4;
+}
+
+message GetTableResponse {
+    bool success = 1;
+    optional TableObject table = 2;
+}
+
+message ListFilesRequest {
+    int64 snapshot_obj_id = 1;
+    int32 snapshot_vid = 2;
+}
+
+message ListFilesResponse {
+    bool success = 1;
+    repeated FileObject files = 2;
+}
+
+message AppendFilesRequest {
+    int64 table_obj_id = 1;
+    int64 snapshot_obj_id = 2;
+    int32 snapshot_vid = 3;
+    bool prepare= 4;
+    repeated FileObject files = 5;
+    optional int64 txn_id = 6;
+}
+
+message AppendFilesResponse {
+    bool success = 1;
+}
+
+message RewriteFilesRequest {
+    int64 table_obj_id = 1;
+    int64 snapshot_obj_id = 2;
+    int32 snapshot_vid = 3;
+    bool prepare= 4;
+    repeated string files_to_replace = 5;
+    repeated FileObject files_to_add = 6;
+    optional int64 txn_id = 7;
+}
+
+message RewriteFilesResponse {
+    bool success = 1;
+}
+
+message ExecQueryRequest {
+    string query = 1;
+}
+
+message ExecQueryResponse {
+    bool success = 1;
+    bytes result_set = 2;
+}
+
+message StartTransactionRequest {
+    string workspace_name = 1;
+    string db_name = 2;
+    repeated string table_names = 3;
+}
+
+message StartTransactionResponse {
+    bool success = 1;
+    int64 txn_id = 2;
+    repeated TableObject tables = 3;
+}
+
+message CommitRequest {
+    int64 txn_id = 1;
+}
+
+message CommitResponse {
+    bool success = 1;
+}
+
+message ExpireSnapshotsRequest {
+    string workspace_name = 1;
+    string db_name = 2;
+    string table_name = 3;
+    oneof expire {
+        int32 vid = 4;
+        int32 older_than_vid = 5;
+        int32 retain_last = 6;
+    }
+}
+
+message ExpireSnapshotsResponse {
+    bool success = 1;
+}
+
+service Catalog {
+    rpc GetTable(GetTableRequest) returns (GetTableResponse);
+    rpc ListFiles(ListFilesRequest) returns (ListFilesResponse); 
+    rpc AppendFiles(AppendFilesRequest) returns (AppendFilesResponse);
+    rpc RewriteFiles(RewriteFilesRequest) returns (RewriteFilesResponse);
+    rpc ExecQuery(ExecQueryRequest) returns (ExecQueryResponse);
+    rpc StartTransaction(StartTransactionRequest) returns (StartTransactionResponse);
+    rpc Commit(CommitRequest) returns (CommitResponse);
+    rpc ExpireSnapshots(ExpireSnapshotsRequest) returns (ExpireSnapshotsResponse);
+}
