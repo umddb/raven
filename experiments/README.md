@@ -244,7 +244,7 @@ java -Dlogback.configurationFile=<raven_path>/experiments/logback.xml \
      <config_path>
 ```
 
-## Multi-TableTxn2 Experiment
+## Multi-Table Transactions Experiment 2
 An experiment for evaluating multi-table transaction implementations for Iceberg and Delta Lake. 
 
 Delete all files created as a result of any previous experiment run in S3, using AWS console.
@@ -300,7 +300,7 @@ java -Dlogback.configurationFile=<raven_path>/experiments/logback.xml \
      <config_path>
 ```
 
-## Multi-TableTxn3 Experiment
+## Multi-Table Transactions Experiment 3
 An experiment for evaluating multi-table transaction implementation of Raven. Unlike previous expriment, this is more comprehensive, testing multiple client threads, skew etc without Iceberg and Delta Lake integrations.  
 
 Delete all files created as a result of any previous experiment run in S3, using AWS console.
