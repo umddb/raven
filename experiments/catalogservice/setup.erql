@@ -1,0 +1,42 @@
+CREATE ENTITY Workspace (
+    workspace_name VARCHAR(128) NOT NULL
+);
+
+ALTER ENTITY Workspace
+SET ROOT;
+
+CREATE ENTITY Database (
+    db_name VARCHAR(128) NOT NULL
+);
+
+CREATE ABSTRACT ENTITY Asset();
+
+CREATE ENTITY Table (
+    table_name VARCHAR(128) NOT NULL
+) IMPLEMENTS Asset;
+
+CREATE ABSTRACT ENTITY AssetSnapshot();
+
+CREATE FILELIST ENTITY TableSnapshot (
+    table_name VARCHAR(128) NOT NULL,
+    create_time TIMESTAMPTZ,
+    schema JSONB,
+    table_type VARCHAR(128)
+) IMPLEMENTS AssetSnapshot;
+
+CREATE RELATIONSHIP Contains(Workspace, Database);
+
+ALTER RELATIONSHIP Contains(Workspace, Database) 
+SET Workspace REFERENCES Database;
+
+CREATE RELATIONSHIP Contains(Database, Asset);
+
+ALTER RELATIONSHIP Contains(Database, Asset) 
+SET Database REFERENCES Asset;
+
+CREATE RELATIONSHIP Contains(Asset, AssetSnapshot);
+
+ALTER RELATIONSHIP Contains(Asset, AssetSnapshot) 
+SET Asset REFERENCES AssetSnapshot;
+
+CREATE RELATIONSHIP Head(Asset, AssetSnapshot);

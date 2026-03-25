@@ -1,0 +1,15 @@
+{
+    "exp_type" : "vanilla",
+    "num_txn" : "120",
+    "workspace_name" : "public",
+    "db_name" : "retail",
+    "table_name" : "store_sales",
+    "num_rows_per_file" : "1000000",
+    "warehouse_location" : "s3://umdraven/warehouse",
+    "txn_per_compaction" : "10",
+    "s3_secret" : "<s3_secret>",
+    "s3_key_id" : "<s3_key_id>",
+    "s3_region" : "<s3_region>",
+    "raven_address" : "10.10.1.1:9876",
+    "exp_result_dir" : "/users/koh3/extendedmorwrite2"
+}

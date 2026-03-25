@@ -1,0 +1,18 @@
+{
+    "skew" : "1",
+    "refresh_ratio" : "0.5",
+    "insert_ratio" : "0.45",
+    "compact_ratio" : "0.05",
+    "duration" : "00:06:00",
+    "workspace_name" : "public",
+    "db_name" : "retail",
+    "table_name" : "store_sales",
+    "num_threads" : "60",
+    "num_rows_per_file" : "1",
+    "warehouse_location" : "s3://umdraven/warehouse",
+    "s3_secret" : "<s3_secret>",
+    "s3_key_id" : "<s3_key_id>",
+    "s3_region" : "<s3_region>",
+    "raven_address" : "10.10.1.1:9876",
+    "exp_result_dir" : "/users/koh3/multitabletxn3"
+}

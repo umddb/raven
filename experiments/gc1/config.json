@@ -1,0 +1,17 @@
+{
+    "refresh_ratio" : "0.8",
+    "insert_ratio" : "0.2",
+    "duration" : "00:12:00",
+    "workspace_name" : "public",
+    "db_name" : "retail",
+    "table_name" : "store_sales",
+    "num_threads" : "60",
+    "txn_per_compaction" : "10",
+    "num_rows_per_file" : "1",
+    "warehouse_location" : "s3://umdraven/warehouse",
+    "s3_secret" : "<s3_secret>",
+    "s3_key_id" : "<s3_key_id>",
+    "s3_region" : "<s3_region>",
+    "raven_address" : "10.10.1.1:9876",
+    "exp_result_dir" : "/users/koh3/gc1"
+}

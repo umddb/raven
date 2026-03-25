@@ -1,0 +1,14 @@
+{
+    "exp_type" : "vanilla",
+    "num_txn" : "120",
+    "workspace_name" : "public",
+    "db_name" : "retail",
+    "num_tables" : "10",
+    "num_rows_per_file" : "10000",
+    "warehouse_location" : "s3://umdraven/warehouse",
+    "s3_secret" : "<s3_secret>",
+    "s3_key_id" : "<s3_key_id>",
+    "s3_region" : "<s3_region>",
+    "raven_address" : "10.10.1.1:9876",
+    "exp_result_dir" : "/users/koh3/multitabletxn2"
+}

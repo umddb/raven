@@ -107,15 +107,11 @@ void execERQL(std::string erql_path) {
 }
 
 int main(int argc, char **argv) {
-    if (argc > 1) {
-        ercat::Config::init(std::string(argv[1]));
-    }
-    else {
-        ercat::Config::init();
-    }
+    ercat::Config::init(std::string(argv[1]));
+    
     ercat::CatCache::init();
-    ercat::execERQLDDL("/home/keonwoo/research/safedatalifecycle/tests/setup.erql");
-    ercat::execERQL("/home/keonwoo/research/safedatalifecycle/tests/populate.erql");
+    ercat::execERQLDDL(argv[2]);
+    ercat::execERQL(argv[3]);
 
     // ercat::testGRPC();
 

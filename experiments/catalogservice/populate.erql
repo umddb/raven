@@ -1,0 +1,597 @@
+INSERT INTO ROOT ENTITY Workspace (workspace_name) VALUES ('workspace1');
+
+INSERT INTO ENTITY Database (db_name) VALUES ('db1');
+
+WITH temp1 AS (SELECT w.obj_id, w.vid FROM Workspace w WHERE w.workspace_name = 'workspace1'),
+temp2 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'db1') 
+INSERT INTO RELATIONSHIP Contains(Workspace, Database) 
+SELECT 'Workspace', w.obj_id, w.vid, 'Database', d.obj_id, d.vid FROM temp1 w, temp2 d;
+
+INSERT INTO ENTITY Table (table_name) VALUES ('table1');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'db1'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'table1') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('table1', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'table1'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'table1')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'table1'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'table1')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('table2');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'db1'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'table2') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('table2', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'table2'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'table2')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'table2'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'table2')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+INSERT INTO ROOT ENTITY Workspace (workspace_name) VALUES ('public');
+
+INSERT INTO ENTITY Database (db_name) VALUES ('retail');
+
+WITH temp1 AS (SELECT w.obj_id, w.vid FROM Workspace w WHERE w.workspace_name = 'public'),
+temp2 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail') 
+INSERT INTO RELATIONSHIP Contains(Workspace, Database) 
+SELECT 'Workspace', w.obj_id, w.vid, 'Database', d.obj_id, d.vid FROM temp1 w, temp2 d;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('call_center');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'call_center') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('call_center', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'call_center'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'call_center')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'call_center'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'call_center')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('catalog_page');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'catalog_page') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('catalog_page', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'catalog_page'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'catalog_page')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'catalog_page'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'catalog_page')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('catalog_returns');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'catalog_returns') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('catalog_returns', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'catalog_returns'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'catalog_returns')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'catalog_returns'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'catalog_returns')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('catalog_sales');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'catalog_sales') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('catalog_sales', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'catalog_sales'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'catalog_sales')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'catalog_sales'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'catalog_sales')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('customer_address');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'customer_address') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('customer_address', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'customer_address'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'customer_address')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'customer_address'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'customer_address')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('customer_demographics');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'customer_demographics') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('customer_demographics', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'customer_demographics'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'customer_demographics')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'customer_demographics'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'customer_demographics')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('customer');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'customer') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('customer', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'customer'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'customer')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'customer'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'customer')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('date_dim');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'date_dim') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('date_dim', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'date_dim'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'date_dim')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'date_dim'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'date_dim')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('household_demographics');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'household_demographics') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('household_demographics', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'household_demographics'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'household_demographics')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'household_demographics'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'household_demographics')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('income_band');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'income_band') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('income_band', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'income_band'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'income_band')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'income_band'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'income_band')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('inventory');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'inventory') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('inventory', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'inventory'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'inventory')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'inventory'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'inventory')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('item');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'item') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('item', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'item'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'item')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'item'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'item')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('promotion');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'promotion') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('promotion', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'promotion'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'promotion')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'promotion'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'promotion')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('reason');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'reason') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('reason', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'reason'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'reason')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'reason'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'reason')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('ship_mode');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'ship_mode') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('ship_mode', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'ship_mode'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'ship_mode')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'ship_mode'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'ship_mode')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('store_returns');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'store_returns') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('store_returns', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'store_returns'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'store_returns')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'store_returns'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'store_returns')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('store_sales');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'store_sales') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('store_sales', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'store_sales'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'store_sales')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'store_sales'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'store_sales')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('store');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'store') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('store', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'store'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'store')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'store'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'store')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('time_dim');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'time_dim') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('time_dim', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'time_dim'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'time_dim')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'time_dim'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'time_dim')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('warehouse');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'warehouse') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('warehouse', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'warehouse'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'warehouse')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'warehouse'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'warehouse')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('web_page');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'web_page') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('web_page', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'web_page'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'web_page')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'web_page'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'web_page')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('web_returns');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'web_returns') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('web_returns', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'web_returns'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'web_returns')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'web_returns'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'web_returns')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('web_sales');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'web_sales') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('web_sales', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'web_sales'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'web_sales')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'web_sales'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'web_sales')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+
+
+INSERT INTO ENTITY Table (table_name) VALUES ('web_site');
+
+WITH temp1 AS (SELECT d.obj_id, d.vid FROM Database d WHERE d.db_name = 'retail'),
+temp2 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'web_site') 
+INSERT INTO RELATIONSHIP Contains(Database, Table) 
+SELECT 'Database', d.obj_id, d.vid, 'Table', t.obj_id, t.vid FROM temp1 d, temp2 t;
+
+INSERT INTO ENTITY TableSnapshot (table_name, create_time, schema, table_type) 
+VALUES ('web_site', NOW(), NULL,'iceberg');
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'web_site'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'web_site')
+INSERT INTO RELATIONSHIP Contains(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
+
+WITH temp1 AS (SELECT t.obj_id, t.vid FROM Table t WHERE t.table_name = 'web_site'),
+temp2 AS (SELECT t.obj_id, t.vid FROM TableSnapshot t WHERE t.table_name = 'web_site')
+INSERT INTO RELATIONSHIP Head(Table, TableSnapshot) 
+SELECT 'Table', t.obj_id, t.vid, 'TableSnapshot', ts.obj_id, ts.vid FROM temp1 t, temp2 ts;
