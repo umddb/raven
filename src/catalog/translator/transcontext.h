@@ -6,6 +6,7 @@
 #include <string>
 
 #include "boost/unordered/unordered_flat_map.hpp"
+#include "boost/unordered/unordered_flat_set.hpp"
 #include "utils/catcache.h"
 
 namespace ercat {
@@ -93,6 +94,18 @@ public:
     std::string referrer_ent_;
     std::string referee_ent_;
     std::string retention_period_;
+
+private:
+    enum class VisitState {
+        UNVISITED = 0, // Default state
+        VISITING,
+        VISITED
+    };
+
+    bool createsCycle(RelId new_rel_id, bool right_ref, bool left_ref) const;
+    bool hasCycleDFS(const EntId node, 
+                 const boost::unordered_flat_map<EntId, boost::unordered_flat_set<EntId>>& graph, 
+                 boost::unordered_flat_map<EntId, VisitState>& states) const;
 };
 
 // createentstmt

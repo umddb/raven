@@ -107,10 +107,17 @@ void AlterRelStmtTransContext::translate(const std::string& input_string,
         return;
     }
     RelId rel_id = reverse_rel_map.at(rel_sig);
+    bool right_ref = (src_ent_ == referrer_ent_ && dest_ent_ == referee_ent_);
+    bool left_ref = (src_ent_ == referee_ent_ && dest_ent_ == referrer_ent_);
+
+    if ((right_ref || left_ref) && createsCycle(rel_id, right_ref, left_ref)) {
+        errors.emplace_back("Altering " + rel_sig.toString() + " creates a cycle in ER model graph");
+        return;
+    }
 
     std::string output_str;
     // reference going to the right
-    if (src_ent_ == referrer_ent_ && dest_ent_ == referee_ent_) {
+    if (right_ref) {
         fmt::format_to(
             std::back_inserter(output_str),
             "UPDATE ercat.Relationship SET is_referential = 'r' WHERE rel_id = {}",
@@ -118,7 +125,7 @@ void AlterRelStmtTransContext::translate(const std::string& input_string,
         );
     }
     // reference going to the left
-    else if (src_ent_ == referee_ent_ && dest_ent_ == referrer_ent_) {
+    else if (left_ref) {
         fmt::format_to(
             std::back_inserter(output_str),
             "UPDATE ercat.Relationship SET is_referential = 'l' WHERE rel_id = {}",
@@ -146,6 +153,107 @@ void AlterRelStmtTransContext::translate(const std::string& input_string,
 
     output_streams.clear();
     output_streams.push_back(output_str);
+}
+
+bool AlterRelStmtTransContext::createsCycle(RelId new_rel_id, bool right_ref, bool left_ref) const {
+    const CatCache& cat_cache = CatCache::getInstance();
+    const auto& reverse_rel_map = cat_cache.reverseRelMap();
+    const auto& reference_map = cat_cache.referenceMap();
+    // for convenience we pool all the abstract and concrete types
+    boost::unordered_flat_map<EntId, boost::unordered_flat_set<EntId>> reference_graph;
+    // enumerate all the relation signatures
+    for (const auto& elem : reverse_rel_map) {
+        RelSig rel_sig = elem.first;
+        RelId rel_id = elem.second;
+        // source vertex
+        EntId src_vertex;
+        // destination vertex
+        EntId dest_vertex;
+        // if the target relation type, alter the referential information
+        if (new_rel_id == rel_id) {
+            if (right_ref) {
+                src_vertex = rel_sig.src_ent_id_;
+                dest_vertex = rel_sig.dest_ent_id_;
+            }
+            else {
+                src_vertex = rel_sig.dest_ent_id_;
+                dest_vertex = rel_sig.src_ent_id_;
+            }
+        }
+        else {
+            // check the direction of the reference 
+            if (reference_map.at(rel_id) == 'r') {
+                src_vertex = rel_sig.src_ent_id_;
+                dest_vertex = rel_sig.dest_ent_id_;
+            }
+            else if (reference_map.at(rel_id) == 'l') {
+                src_vertex = rel_sig.dest_ent_id_;
+                dest_vertex = rel_sig.src_ent_id_;
+            }
+            // not a reference, so pass
+            else {
+                continue;
+            }
+        }
+        
+        // new entry if the vertex does not exist. 
+        reference_graph.try_emplace(src_vertex);
+        
+        // get the adjacency list and insert
+        auto& neighbors = reference_graph.at(src_vertex);
+        neighbors.insert(dest_vertex);
+    }
+
+    boost::unordered_flat_map<EntId, VisitState> states;
+    // Iterate through all nodes in the graph to handle disconnected components
+    for (const auto& pair : reference_graph) {
+        EntId node = pair.first;
+        
+        // If the node hasn't been visited, start a DFS from it
+        if (states.find(node) == states.end() || states[node] == VisitState::UNVISITED) {
+            if (hasCycleDFS(node, reference_graph, states)) {
+                return true;
+            }
+        }
+    }
+    
+    return false;
+
+}
+
+bool AlterRelStmtTransContext::hasCycleDFS(const EntId node, 
+                 const boost::unordered_flat_map<EntId, boost::unordered_flat_set<EntId>>& graph, 
+                 boost::unordered_flat_map<EntId, VisitState>& states) const {
+    
+    // Mark the current node as currently being visited (in the recursion stack)
+    states[node] = VisitState::VISITING;
+    
+    // Find neighbors of the current node
+    auto it = graph.find(node);
+    if (it != graph.end()) {
+        for (const EntId neighbor : it->second) {
+            
+            // Check the state of the neighbor
+            auto state_it = states.find(neighbor);
+            VisitState neighbor_state = (state_it != states.end()) ? state_it->second : VisitState::UNVISITED;
+            
+            // If the neighbor is currently being visited, we found a back-edge (cycle)
+            // A self-loop will trigger this immediately since the current node is VISITING.
+            if (neighbor_state == VisitState::VISITING) {
+                return true;
+            } 
+            // If the neighbor is unvisited, explore it recursively
+            else if (neighbor_state == VisitState::UNVISITED) {
+                if (hasCycleDFS(neighbor, graph, states)) {
+                    return true;
+                }
+            }
+        }
+    }
+    
+    // Mark the node as fully processed
+    states[node] = VisitState::VISITED;
+    return false;
 }
 
 CreateEntStmtTransContext::CreateEntStmtTransContext() : TransContext(TransContextType::CreateEntStmt) { }
@@ -1074,4 +1182,3 @@ InsertRestTransContext::InsertRestTransContext() : TransContext(TransContextType
 InsertRestTransContext::~InsertRestTransContext() { }
 
 }
-
