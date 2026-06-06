@@ -26,14 +26,23 @@ add_custom_command(
       DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/catalog.proto"
 )
 
+# 1. ADD THIS: Create a global target that triggers the custom command above
+add_custom_target(catalog_proto_gen
+      DEPENDS "${proto_srcs}" "${proto_hdrs}" "${grpc_srcs}" "${grpc_hdrs}"
+)
+
 add_library(grpc STATIC grpcserver.cpp ${proto_srcs} ${grpc_srcs})
+
+# 2. ADD THIS: Tell the grpc library it depends on this generation step
+add_dependencies(grpc catalog_proto_gen)
 
 target_include_directories(grpc PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../.. )
 target_include_directories(grpc PUBLIC ${ERCAT_THIRDPARTY_INCLUDE})
 
-# alternatively gRPC::grpc++ for using TLS/SSL
 target_link_libraries(grpc PRIVATE Boost::headers protobuf::libprotobuf gRPC::grpc++_unsecure)
 target_link_libraries(grpc PUBLIC utils translator service)
+
+
 
 
 # # Include generated headers
