@@ -10,18 +10,18 @@ set(GRAMMAR_PARSER ${CMAKE_CURRENT_SOURCE_DIR}/ERQLParser.g4)
 
 # Define expected outputs in the build directory
 set(GENERATED_SOURCES
-    ${CMAKE_CURRENT_BINARY_DIR}/ERQLLexer.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/ERQLLexer.h
-    ${CMAKE_CURRENT_BINARY_DIR}/ERQLParser.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/ERQLParser.h
-    ${CMAKE_CURRENT_BINARY_DIR}/ERQLParserBaseListener.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/ERQLParserBaseListener.h
-    ${CMAKE_CURRENT_BINARY_DIR}/ERQLParserBaseVisitor.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/ERQLParserBaseVisitor.h
-    ${CMAKE_CURRENT_BINARY_DIR}/ERQLParserListener.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/ERQLParserListener.h
-    ${CMAKE_CURRENT_BINARY_DIR}/ERQLParserVisitor.cpp
-    ${CMAKE_CURRENT_BINARY_DIR}/ERQLParserVisitor.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/ERQLLexer.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ERQLLexer.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/ERQLParser.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ERQLParser.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/ERQLParserBaseListener.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ERQLParserBaseListener.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/ERQLParserBaseVisitor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ERQLParserBaseVisitor.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/ERQLParserListener.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ERQLParserListener.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/ERQLParserVisitor.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ERQLParserVisitor.h
 )
 
 # Custom command to invoke ANTLR4 generator during the build
@@ -29,7 +29,7 @@ add_custom_command(
     OUTPUT ${GENERATED_SOURCES}
     COMMAND ${Java_JAVA_EXECUTABLE} -jar ${ANTLR_EXECUTABLE} 
             -Dlanguage=Cpp -visitor -listener 
-            -o ${CMAKE_CURRENT_BINARY_DIR} 
+            -o ${CMAKE_CURRENT_SOURCE_DIR} 
             ${GRAMMAR_LEXER} ${GRAMMAR_PARSER}
     DEPENDS ${GRAMMAR_LEXER} ${GRAMMAR_PARSER}
     COMMENT "Generating ANTLR4 C++ sources for ERQL"
@@ -41,7 +41,6 @@ add_library(parser STATIC ${GENERATED_SOURCES})
 # Include the binary dir so the compiler can find the generated headers
 target_include_directories(parser PUBLIC 
     ${CMAKE_CURRENT_SOURCE_DIR} 
-    ${CMAKE_CURRENT_BINARY_DIR} 
     ${ERCAT_THIRDPARTY_INCLUDE}/antlr4-runtime
 )
 
