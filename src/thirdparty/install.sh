@@ -94,7 +94,9 @@ fi
 
 # antlr4 jar
 if [ ! -e $INSTALL_DIR/antlr-4.13.2-complete.jar ]; then 
+    cd install
     curl -L -O https://www.antlr.org/download/antlr-4.13.2-complete.jar
+    cd ..
 fi
 
 # antlr4 cpp runtime
@@ -108,7 +110,7 @@ if [ ! -e $INSTALL_DIR/lib/libantlr4-runtime.a ]; then
     mkdir build && cd build
     cmake -DCMAKE_INSTALL_PREFIX=$INSTALL_DIR -DANTLR4_INSTALL=ON ..
     make install
-    cd ../../..
+    cd ../../../..
 fi
 
 if [ ! -e $INSTALL_DIR/lib/libaws-cpp-sdk-core.so ]; then
