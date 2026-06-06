@@ -36,7 +36,7 @@ add_custom_command(
 )
 
 # Create the static library from the generated sources
-add_library(parser STATIC ${GENERATED_SOURCES})
+add_library(parser STATIC ${GENERATED_SOURCES} ERQLLexerBase.cpp ERQLParserBase.cpp)
 
 # Include the binary dir so the compiler can find the generated headers
 target_include_directories(parser PUBLIC 
