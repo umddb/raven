@@ -3,6 +3,12 @@
 This file outlines how to run the experiments on Ubuntu 20.04 or Ubuntu 22.04 on x86-64 machines. For the following experiments, custom versions of Iceberg 1.10, Delta Lake Kernel 4.0 and Raven were set up on a cluster of 4 nodes.
 
 ## Set up
+On all nodes, download Open JDK 17
+
+```bash
+sudo apt install openjdk-17-jdk
+```
+
 On the node that will run Catalog Service (Node 2) and the node that will run the Garbage Collector (Node 3), download the Raven repo to build Raven: 
 ```bash
 cd <raven_path>/src/thirdparty
@@ -44,11 +50,14 @@ sudo -i -u postgres psql
 CREATE USER "koh" WITH PASSWORD 'koh';
 CREATE DATABASE "koh" OWNER "koh";
 GRANT ALL PRIVILEGES ON DATABASE "koh" TO "koh";
+
+\c koh
+
 ALTER SCHEMA public OWNER TO "koh";
 GRANT ALL ON SCHEMA public TO "koh";
 ```
 
-Then, run <raven_path>/metadatastore/catalog.sql
+Then, run <raven_path>/experiments/metadatastore/catalog.sql
 
 
 On the last node (Node 4), clone Delta Lake and Iceberg, apply the git patches, and build:
@@ -75,17 +84,17 @@ This experiment runs a microbenchmark to evaluate the write performance of Exten
 
 Delete all files created as a result of any previous experiment run in S3, using AWS console.
 
-On Node 1, run <raven_path>/metadatastore/clean.sql
+On Node 1, run <raven_path>/experiments/metadatastore/clean.sql
 
 On Node 2, run the following to set up the catalog service
 ```bash
-<raven_path>/build/setup <raven_path>/catalogservice/config.txt <raven_path>/catalogservice/setup.erql <raven_path>/catalogservice/populate.erql
-<raven_path>/build/server <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/setup <raven_path>/experiments/catalogservice/config.txt <raven_path>/experiments/catalogservice/setup.erql <raven_path>/experiments/catalogservice/populate.erql
+<raven_path>/build/src/server <raven_path>/experiments/catalogservice/config.txt
 ```
 
 On Node 3, run the garbage collector
 ```bash
-<raven_path>/build/rungc <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/rungc <raven_path>/experiments/catalogservice/config.txt
 ```
 
 On Node 4, start embedded HMS:
@@ -132,17 +141,17 @@ Same experiment as above, except the experiment runs over a set number of iterat
 
 Delete all files created as a result of any previous experiment run in S3, using AWS console.
 
-On Node 1, run <raven_path>/metadatastore/clean.sql
+On Node 1, run <raven_path>/experiments/metadatastore/clean.sql
 
 On Node 2, run the following to set up the catalog service
 ```bash
-<raven_path>/build/setup <raven_path>/catalogservice/config.txt <raven_path>/catalogservice/setup.erql <raven_path>/catalogservice/populate.erql
-<raven_path>/build/server <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/setup <raven_path>/experiments/catalogservice/config.txt <raven_path>/experiments/catalogservice/setup.erql <raven_path>/experiments/catalogservice/populate.erql
+<raven_path>/build/src/server <raven_path>/experiments/catalogservice/config.txt
 ```
 
 On Node 3, run the garbage collector
 ```bash
-<raven_path>/build/rungc <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/rungc <raven_path>/experiments/catalogservice/config.txt
 ```
 
 On Node 4, start embedded HMS:
@@ -189,17 +198,17 @@ An experiment for testing the impact of the extended MoR on the read performance
 
 Delete all files created as a result of any previous experiment run in S3, using AWS console.
 
-On Node 1, run <raven_path>/metadatastore/clean.sql
+On Node 1, run <raven_path>/experiments/metadatastore/clean.sql
 
 On Node 2, run the following to set up the catalog service
 ```bash
-<raven_path>/build/setup <raven_path>/catalogservice/config.txt <raven_path>/catalogservice/setup.erql <raven_path>/catalogservice/populate.erql
-<raven_path>/build/server <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/setup <raven_path>/experiments/catalogservice/config.txt <raven_path>/experiments/catalogservice/setup.erql <raven_path>/experiments/catalogservice/populate.erql
+<raven_path>/build/src/server <raven_path>/experiments/catalogservice/config.txt
 ```
 
 On Node 3, run the garbage collector
 ```bash
-<raven_path>/build/rungc <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/rungc <raven_path>/catalogservice/config.txt
 ```
 
 On Node 4, start embedded HMS:
@@ -249,17 +258,17 @@ An experiment for evaluating multi-table transaction implementations for Iceberg
 
 Delete all files created as a result of any previous experiment run in S3, using AWS console.
 
-On Node 1, run <raven_path>/metadatastore/clean.sql
+On Node 1, run <raven_path>/experiments/metadatastore/clean.sql
 
 On Node 2, run the following to set up the catalog service
 ```bash
-<raven_path>/build/setup <raven_path>/catalogservice/config.txt <raven_path>/catalogservice/setup.erql <raven_path>/catalogservice/populate.erql
-<raven_path>/build/server <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/setup <raven_path>/experiments/catalogservice/config.txt <raven_path>/experiments/catalogservice/setup.erql <raven_path>/experiments/catalogservice/populate.erql
+<raven_path>/build/src/server <raven_path>/experiments/catalogservice/config.txt
 ```
 
 On Node 3, run the garbage collector
 ```bash
-<raven_path>/build/rungc <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/rungc <raven_path>/experiments/catalogservice/config.txt
 ```
 
 On Node 4, start embedded HMS:
@@ -305,17 +314,17 @@ An experiment for evaluating multi-table transaction implementation of Raven. Un
 
 Delete all files created as a result of any previous experiment run in S3, using AWS console.
 
-On Node 1, run <raven_path>/metadatastore/clean.sql
+On Node 1, run <raven_path>/experiments/metadatastore/clean.sql
 
 On Node 2, run the following to set up the catalog service
 ```bash
-<raven_path>/build/setup <raven_path>/catalogservice/config.txt <raven_path>/catalogservice/setup.erql <raven_path>/catalogservice/populate2.erql
-<raven_path>/build/server <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/setup <raven_path>/experiments/catalogservice/config.txt <raven_path>/experiments/catalogservice/setup.erql <raven_path>/experiments/catalogservice/populate2.erql
+<raven_path>/build/src/server <raven_path>/experiments/catalogservice/config.txt
 ```
 
 On Node 3, run the garbage collector
 ```bash
-<raven_path>/build/rungc <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/rungc <raven_path>/experiments/catalogservice/config.txt
 ```
 
 On Node 4, create a configuration json file for the experiment. Example file is under multitabletxn3/. The cofiguration parameters are as follows:
@@ -346,17 +355,17 @@ An experiment for evaluating the impact of garbage collection on other metadata 
 
 Delete all files created as a result of any previous experiment run in S3, using AWS console.
 
-On Node 1, run <raven_path>/metadatastore/clean.sql
+On Node 1, run <raven_path>/experiments/metadatastore/clean.sql
 
 On Node 2, run the following to set up the catalog service
 ```bash
-<raven_path>/build/setup <raven_path>/catalogservice/config.txt <raven_path>/catalogservice/setup.erql <raven_path>/catalogservice/populate2.erql
-<raven_path>/build/server <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/setup <raven_path>/experiments/catalogservice/config.txt <raven_path>/experiments/catalogservice/setup.erql <raven_path>/experiments/catalogservice/populate2.erql
+<raven_path>/build/src/server <raven_path>/experiments/catalogservice/config.txt
 ```
 
 On Node 3, run the garbage collector if evaluating with gc enabled. Otherwise, skip this step.
 ```bash
-<raven_path>/build/rungc <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/rungc <raven_path>/experiments/catalogservice/config.txt
 ```
 
 On Node 4, create a configuration json file for the experiment. Example file is under gc1/. The cofiguration parameters are as follows:
@@ -388,17 +397,17 @@ An experiment for evaluating the scalability of the garbage collection.
 
 Delete all files created as a result of any previous experiment run in S3, using AWS console.
 
-On Node 1, run <raven_path>/metadatastore/clean.sql
+On Node 1, run <raven_path>/experiments/metadatastore/clean.sql
 
 On Node 2, run the following to set up the catalog service
 ```bash
-<raven_path>/build/setup <raven_path>/catalogservice/config.txt <raven_path>/catalogservice/setup.erql <raven_path>/catalogservice/populate2.erql
-<raven_path>/build/server <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/setup <raven_path>/experiments/catalogservice/config.txt <raven_path>/experiments/catalogservice/setup.erql <raven_path>/experiments/catalogservice/populate2.erql
+<raven_path>/build/src/server <raven_path>/experiments/catalogservice/config.txt
 ```
 
 On Node 3, run the garbage collector
 ```bash
-<raven_path>/build/rungc <raven_path>/catalogservice/config.txt
+<raven_path>/build/src/rungc <raven_path>/experiments/catalogservice/config.txt
 ```
 
 On Node 4, create a configuration json file for the experiment. Example file is under gc2/. The cofiguration parameters are as follows:
