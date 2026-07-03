@@ -31,6 +31,9 @@ sudo apt install -y libpq-dev
 # libtbb
 sudo apt-get install -y libtbb-dev
 
+# openjdk
+sudo apt install -y openjdk-17-jdk
+
 # grpc (& re2 for pkg-conf resolution)
 if [ ! -e $INSTALL_DIR/lib/libgrpc.a ]; then
     sudo apt install -y cmake
