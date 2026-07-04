@@ -13,7 +13,7 @@ On the node that will run Catalog Service (Node 2) and the node that will run th
 ```bash
 cd <raven_path>/src/thirdparty
 ./install.sh
-cd ..
+cd ../..
 mkdir build && cd build
 cmake -DCMAKE_BUILD_TYPE=Release ..
 make
