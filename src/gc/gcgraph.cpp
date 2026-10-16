@@ -1,6 +1,8 @@
 #include <algorithm>
+#include <condition_variable>
 #include <endian.h>
 #include <stack>
+
 
 #include "boost/asio/post.hpp"
 #include "rocksdb/db.h"
