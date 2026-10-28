@@ -1,0 +1,22 @@
+{
+    "is_duck_lake" : "true",
+    "skew" : "0",
+    "duration" : "00:06:00",
+    "workspace_name" : "public",
+    "db_name" : "retail",
+    "table_name" : "store_sales",
+    "num_threads" : "90",
+    "num_rows_per_file" : "1",
+    "warehouse_location" : "s3://umdraven/warehouse",
+    "s3_secret" : "<s3_secret>",
+    "s3_key_id" : "<s3_key_id>",
+    "s3_region" : "<s3_region>",
+    "raven_address" : "10.10.1.1:9876",
+    "pg_host" : "10.10.1.2",
+    "pg_port" : "5432",
+    "pg_user" : "koh",
+    "pg_password" : "koh",
+    "pg_db_name" : "koh",
+    "ducklake_data_path" : "s3://umdraven/warehouse",
+    "exp_result_dir" : "/users/koh3/multitabletxn4"
+}

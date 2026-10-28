@@ -361,7 +361,7 @@ index d57aab505..2856f1b31 100644
    public String tableName() {
      return String.format("%s.%s", tableReference.getDatasetId(), tableReference.getTableId());
 diff --git a/build.gradle b/build.gradle
-index 6bc052885..04623e592 100644
+index 6bc052885..52bee7541 100644
 --- a/build.gradle
 +++ b/build.gradle
 @@ -20,6 +20,9 @@
@@ -413,7 +413,7 @@ index 6bc052885..04623e592 100644
      annotationProcessor libs.immutables.value
      compileOnly libs.immutables.value
  
-@@ -1121,6 +1131,285 @@ project(':iceberg-open-api') {
+@@ -1121,6 +1131,286 @@ project(':iceberg-open-api') {
    }
  }
  
@@ -626,6 +626,7 @@ index 6bc052885..04623e592 100644
 +    implementation(libs.parquet.hadoop)
 +    implementation libs.caffeine
 +    implementation libs.duckdb
++    implementation 'org.postgresql:postgresql:42.7.3'
 +    implementation platform(libs.jackson.bom)
 +    implementation libs.jackson.core
 +    implementation libs.jackson.databind
@@ -8139,6 +8140,1293 @@ index 000000000..11b24ad6e
 +        }
 +    }
 +}
+diff --git a/exp/src/main/java/org/apache/iceberg/exp/MetadataFootprint.java b/exp/src/main/java/org/apache/iceberg/exp/MetadataFootprint.java
+new file mode 100644
+index 000000000..98dba412d
+--- /dev/null
++++ b/exp/src/main/java/org/apache/iceberg/exp/MetadataFootprint.java
+@@ -0,0 +1,1281 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++package org.apache.iceberg.exp;
++
++import com.fasterxml.jackson.core.type.TypeReference;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.fasterxml.jackson.databind.SerializationFeature;
++import com.fasterxml.jackson.databind.node.ArrayNode;
++import com.fasterxml.jackson.databind.node.ObjectNode;
++import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
++import java.io.BufferedWriter;
++import java.io.File;
++import java.io.IOException;
++import java.net.URI;
++import java.nio.ByteBuffer;
++import java.nio.ByteOrder;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Path;
++import java.nio.file.Paths;
++import java.nio.file.StandardOpenOption;
++import java.sql.Connection;
++import java.sql.DriverManager;
++import java.sql.ResultSet;
++import java.sql.SQLException;
++import java.sql.Statement;
++import java.time.Duration;
++import java.time.Instant;
++import java.util.Collections;
++import java.util.Comparator;
++import java.util.List;
++import java.util.Locale;
++import java.util.Map;
++import java.util.Properties;
++import java.util.UUID;
++import java.util.concurrent.ExecutionException;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
++import java.util.concurrent.Future;
++import java.util.concurrent.ThreadLocalRandom;
++import java.util.concurrent.TimeUnit;
++import java.util.concurrent.atomic.AtomicInteger;
++import java.util.stream.Collectors;
++import org.apache.hadoop.hive.conf.HiveConf;
++import org.apache.iceberg.AppendFiles;
++import org.apache.iceberg.CatalogProperties;
++import org.apache.iceberg.CatalogUtil;
++import org.apache.iceberg.DataFile;
++import org.apache.iceberg.DataFiles;
++import org.apache.iceberg.File2;
++import org.apache.iceberg.FileFormat;
++import org.apache.iceberg.FileScanTask;
++import org.apache.iceberg.Metrics;
++import org.apache.iceberg.PartitionSpec;
++import org.apache.iceberg.Schema;
++import org.apache.iceberg.Table;
++import org.apache.iceberg.aws.AwsClientFactories;
++import org.apache.iceberg.aws.AwsClientProperties;
++import org.apache.iceberg.aws.s3.S3FileIO;
++import org.apache.iceberg.aws.s3.S3FileIOProperties;
++import org.apache.iceberg.catalog.Namespace;
++import org.apache.iceberg.catalog.TableIdentifier;
++import org.apache.iceberg.expressions.Expressions;
++import org.apache.iceberg.hive.HiveCatalog2;
++import org.apache.iceberg.io.CloseableIterable;
++import org.apache.iceberg.aws.s3.S3FileIO;
++import org.apache.iceberg.aws.s3.S3FileIOProperties;
++import org.apache.iceberg.catalog.Namespace;
++import org.apache.iceberg.catalog.TableIdentifier;
++import org.apache.iceberg.hive.HiveCatalog2;
++import org.apache.iceberg.raven.CatalogOuterClass.FileObject;
++import org.apache.iceberg.raven.CatalogOuterClass.StartTransactionResponse;
++import org.apache.iceberg.raven.CatalogOuterClass.TableObject;
++import org.apache.iceberg.raven.RavenCatalog;
++import org.apache.iceberg.relocated.com.google.common.collect.ImmutableMap;
++import org.apache.iceberg.relocated.com.google.common.collect.Lists;
++import org.apache.iceberg.relocated.com.google.common.collect.Maps;
++import org.apache.iceberg.types.Types;
++import org.duckdb.DuckDBConnection;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import software.amazon.awssdk.services.s3.S3Client;
++import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
++
++/**
++ * MetadataFootprint benchmarks the metadata storage footprint in PostgreSQL
++ * for 100,000 files (1 row per file) on a single table with integer columns,
++ * supporting both DuckLake and Raven catalogs.
++ */
++public class MetadataFootprint {
++
++    private static final Logger LOG = LoggerFactory.getLogger(MetadataFootprint.class);
++    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
++
++    // Experiment configurations
++    private static String mode;
++    private static String catalogType;
++    private static boolean isDuckLake;
++    private static int numFiles = 100000;
++    private static int numColumns = 10;
++    private static int numMeasures = 100;
++    private static int logInterval = 10000;
++    private static int batchSize = 100;
++    private static int numThreads = 16;
++    private static int numFileGenThreads = 16;
++    private static int numDuckDBInsertThreads = 16;
++    private static int ducklakeMaxRetryCount = 100;
++    private static final String FIRST_COL_NAME = "col1";
++
++    private static String workspaceName;
++    private static String dbName;
++    private static String tableName;
++    private static String warehouseLocation;
++    private static String ducklakeDataPath;
++
++    // PostgreSQL connection parameters (shared by both DuckLake and Raven)
++    private static String pgHost;
++    private static String pgPort;
++    private static String pgDatabase;
++    private static String pgUser;
++    private static String pgPassword;
++
++    // S3 configuration
++    private static String s3Secret;
++    private static String s3KeyId;
++    private static String s3Region;
++    private static String s3Endpoint;
++    private static S3Client s3;
++
++    // Raven / Hive configuration
++    private static String ravenAddress;
++    private static String hmsUri;
++    private static HiveCatalog2 catalog2;
++    private static RavenCatalog ravenCatalog;
++
++    public static class GeneratedFile {
++        public final int fileIdx;
++        public final String filePath;
++        public final long fileSize;
++
++        public GeneratedFile(int fileIdx, String filePath, long fileSize) {
++            this.fileIdx = fileIdx;
++            this.filePath = filePath;
++            this.fileSize = fileSize;
++        }
++    }
++
++    public static class ReadMeasurement {
++        public final int iteration;
++        public final int targetValue;
++        public final long latencyMs;
++        public final Instant start;
++        public final Instant end;
++
++        public ReadMeasurement(int iteration, int targetValue, long latencyMs, Instant start, Instant end) {
++            this.iteration = iteration;
++            this.targetValue = targetValue;
++            this.latencyMs = latencyMs;
++            this.start = start;
++            this.end = end;
++        }
++    }
++
++    private MetadataFootprint() {}
++
++    public static Map<String, String> parseJsonToMap(String jsonFilePath) throws IOException {
++        File file = new File(jsonFilePath);
++        return JSON_MAPPER.readValue(file, new TypeReference<Map<String, String>>() {});
++    }
++
++    private static void loadConfigs(Map<String, String> expConfigs) {
++        // Mode: "populate" (default) or "read" (measure read performance only)
++        String modeConfig = expConfigs.getOrDefault("mode",
++                expConfigs.getOrDefault("operation",
++                expConfigs.getOrDefault("operation_type",
++                expConfigs.getOrDefault("op_type",
++                expConfigs.getOrDefault("run_mode",
++                expConfigs.getOrDefault("action", "populate"))))));
++
++        if (modeConfig.equalsIgnoreCase("read")
++                || modeConfig.equalsIgnoreCase("read_only")
++                || modeConfig.equalsIgnoreCase("measure_read")
++                || "true".equalsIgnoreCase(expConfigs.get("measure_read"))
++                || "true".equalsIgnoreCase(expConfigs.get("read_only"))
++                || "false".equalsIgnoreCase(expConfigs.get("populate"))) {
++            mode = "read";
++        } else {
++            mode = "populate";
++        }
++
++        // Catalog type: ducklake vs raven
++        String catalogTypeConfig = expConfigs.getOrDefault("catalog_type", expConfigs.get("exp_type"));
++        if (catalogTypeConfig != null) {
++            catalogType = catalogTypeConfig.toLowerCase(Locale.getDefault());
++            isDuckLake = catalogType.contains("ducklake");
++        } else {
++            String isDuckLakeStr = expConfigs.get("is_duck_lake");
++            isDuckLake = isDuckLakeStr != null && (isDuckLakeStr.equalsIgnoreCase("true") || isDuckLakeStr.equals("1"));
++            catalogType = isDuckLake ? "ducklake" : "raven";
++        }
++
++        // Number of files (default: 100,000)
++        String numFilesStr = expConfigs.getOrDefault("num_files", expConfigs.get("num_rows"));
++        if (numFilesStr != null && !numFilesStr.isEmpty() && !numFilesStr.equalsIgnoreCase("default")) {
++            numFiles = Integer.parseInt(numFilesStr);
++        } else {
++            numFiles = 100000;
++        }
++
++        // Number of columns (default: 10)
++        String numColsStr = expConfigs.getOrDefault("num_columns", expConfigs.get("columns"));
++        if (numColsStr != null && !numColsStr.isEmpty() && !numColsStr.equalsIgnoreCase("default")) {
++            numColumns = Integer.parseInt(numColsStr);
++        } else {
++            numColumns = 10;
++        }
++
++        // Number of read measurements (default: 100)
++        String numMeasuresStr = expConfigs.getOrDefault("num_measures",
++                expConfigs.getOrDefault("num_reads", expConfigs.get("num_measurements")));
++        if (numMeasuresStr != null && !numMeasuresStr.isEmpty() && !numMeasuresStr.equalsIgnoreCase("default")) {
++            numMeasures = Integer.parseInt(numMeasuresStr);
++        } else {
++            numMeasures = 100;
++        }
++
++        String logIntervalStr = expConfigs.get("log_interval");
++        if (logIntervalStr != null && !logIntervalStr.isEmpty() && !logIntervalStr.equalsIgnoreCase("default")) {
++            logInterval = Integer.parseInt(logIntervalStr);
++        } else if (numFiles < 10000) {
++            logInterval = Math.max(1, numFiles / 10);
++        } else {
++            logInterval = 10000;
++        }
++
++        // Batch size for bulk commit (default: 100)
++        String batchSizeStr = expConfigs.getOrDefault("batch_size",
++                expConfigs.getOrDefault("files_per_commit", expConfigs.get("commit_batch_size")));
++        if (batchSizeStr != null && !batchSizeStr.isEmpty() && !batchSizeStr.equalsIgnoreCase("default")) {
++            batchSize = Integer.parseInt(batchSizeStr);
++        } else {
++            batchSize = 100;
++        }
++
++        // Parallel threads: num_threads serves as the default for both file generation and DuckDB insert
++        String numThreadsStr = expConfigs.getOrDefault("num_threads",
++                expConfigs.getOrDefault("num_populators", expConfigs.get("parallelism")));
++        if (numThreadsStr != null && !numThreadsStr.isEmpty() && !numThreadsStr.equalsIgnoreCase("default")) {
++            numThreads = Integer.parseInt(numThreadsStr);
++        } else {
++            numThreads = 16;
++        }
++
++        // Thread pool size for data file generation (Phase 1): defaults to num_threads
++        String fileGenThreadsStr = expConfigs.getOrDefault("num_file_gen_threads",
++                expConfigs.getOrDefault("num_gen_threads", expConfigs.get("file_gen_threads")));
++        if (fileGenThreadsStr != null && !fileGenThreadsStr.isEmpty() && !fileGenThreadsStr.equalsIgnoreCase("default")) {
++            numFileGenThreads = Integer.parseInt(fileGenThreadsStr);
++        } else {
++            numFileGenThreads = numThreads;
++        }
++
++        // Thread pool size for DuckDB insert / commit (Phase 2): defaults to num_threads, overridable by another parameter
++        String duckDbInsertThreadsStr = expConfigs.getOrDefault("num_commit_threads",
++                expConfigs.getOrDefault("num_insert_threads",
++                expConfigs.getOrDefault("num_duckdb_threads",
++                expConfigs.getOrDefault("insert_threads",
++                expConfigs.getOrDefault("commit_threads", expConfigs.get("duckdb_threads"))))));
++        if (duckDbInsertThreadsStr != null && !duckDbInsertThreadsStr.isEmpty() && !duckDbInsertThreadsStr.equalsIgnoreCase("default")) {
++            numDuckDBInsertThreads = Integer.parseInt(duckDbInsertThreadsStr);
++        } else {
++            numDuckDBInsertThreads = numThreads;
++        }
++
++        // DuckLake max retry count (default: 100)
++        String maxRetryStr = expConfigs.getOrDefault("ducklake_max_retry_count",
++                expConfigs.getOrDefault("max_retry_count", expConfigs.get("num_retries")));
++        if (maxRetryStr != null && !maxRetryStr.isEmpty() && !maxRetryStr.equalsIgnoreCase("default")) {
++            ducklakeMaxRetryCount = Integer.parseInt(maxRetryStr);
++        } else {
++            ducklakeMaxRetryCount = 100;
++        }
++
++        workspaceName = expConfigs.getOrDefault("workspace_name", "public");
++        dbName = expConfigs.getOrDefault("db_name", "retail");
++        tableName = expConfigs.getOrDefault("table_name", "table1");
++        warehouseLocation = expConfigs.getOrDefault("warehouse_location", "s3://umdraven/warehouse");
++        ducklakeDataPath = expConfigs.getOrDefault("ducklake_data_path", warehouseLocation);
++
++        // PostgreSQL configs (same names for both DuckLake and Raven)
++        pgHost = expConfigs.getOrDefault("pg_host", expConfigs.getOrDefault("db_host", "127.0.0.1"));
++        pgPort = expConfigs.getOrDefault("pg_port", expConfigs.getOrDefault("db_port", "5432"));
++        pgDatabase = expConfigs.getOrDefault(
++                "pg_database",
++                expConfigs.getOrDefault("pg_db_name", expConfigs.getOrDefault("db_name", "ducklakedb")));
++        pgUser = expConfigs.getOrDefault("pg_user", expConfigs.getOrDefault("db_user", "postgres"));
++        pgPassword = expConfigs.getOrDefault("pg_password", expConfigs.getOrDefault("db_password", ""));
++
++        // S3 credentials
++        s3Secret = expConfigs.getOrDefault("s3_secret", "");
++        s3KeyId = expConfigs.getOrDefault("s3_key_id", "");
++        s3Region = expConfigs.getOrDefault("s3_region", "us-east-1");
++        s3Endpoint = expConfigs.get("s3_endpoint");
++        if (s3Endpoint != null && s3Endpoint.equalsIgnoreCase("default")) {
++            s3Endpoint = null;
++        }
++
++        // Raven / HMS
++        ravenAddress = expConfigs.getOrDefault("raven_address", "127.0.0.1:9876");
++        String hmsUriConfig = expConfigs.getOrDefault("hms_uri", expConfigs.get("thrift_uri"));
++        if (hmsUriConfig != null && !hmsUriConfig.isEmpty() && !hmsUriConfig.equalsIgnoreCase("default")) {
++            hmsUri = hmsUriConfig;
++        } else {
++            hmsUri = "thrift://localhost:9083";
++        }
++    }
++
++    private static Schema createSchema(int numCols) {
++        List<Types.NestedField> fields = Lists.newArrayListWithCapacity(numCols);
++        for (int i = 1; i <= numCols; i++) {
++            fields.add(Types.NestedField.required(i, "col" + i, Types.IntegerType.get()));
++        }
++        return new Schema(fields);
++    }
++
++    private static String schemaToTargetList(Schema schema) {
++        List<Types.NestedField> columns = schema.columns();
++        StringBuilder sb = new StringBuilder();
++        for (Types.NestedField column : columns) {
++            sb.append(String.format(Locale.getDefault(), "x::INTEGER AS %s,", column.name()));
++        }
++        if (sb.length() > 0) {
++            sb.setLength(sb.length() - 1);
++        }
++        return sb.toString();
++    }
++
++    private static Metrics computeStats(Schema schema, int i) {
++        Map<Integer, Long> valueCounts = Maps.newHashMap();
++        Map<Integer, Long> nullValueCounts = Maps.newHashMap();
++        Map<Integer, Long> nanValueCounts = Maps.newHashMap();
++        Map<Integer, ByteBuffer> lowerBounds = Maps.newHashMap();
++        Map<Integer, ByteBuffer> upperBounds = Maps.newHashMap();
++
++        ByteBuffer valBytes = ByteBuffer.allocate(Integer.BYTES);
++        valBytes.order(ByteOrder.LITTLE_ENDIAN);
++        valBytes.putInt(i + 1);
++        valBytes.rewind();
++
++        List<Types.NestedField> columns = schema.columns();
++        for (Types.NestedField column : columns) {
++            valueCounts.put(column.fieldId(), 1L);
++            nullValueCounts.put(column.fieldId(), 0L);
++            nanValueCounts.put(column.fieldId(), 0L);
++            lowerBounds.put(column.fieldId(), valBytes.duplicate());
++            upperBounds.put(column.fieldId(), valBytes.duplicate());
++        }
++
++        return new Metrics(1L, null, valueCounts, nullValueCounts, nanValueCounts, lowerBounds, upperBounds);
++    }
++
++    private static void executeSql(DuckDBConnection conn, String sql) throws SQLException {
++        try (Statement stmt = conn.createStatement()) {
++            stmt.execute(sql);
++        }
++    }
++
++    private static DuckDBConnection initDuckDB() throws SQLException {
++        DuckDBConnection conn = (DuckDBConnection) DriverManager.getConnection("jdbc:duckdb:");
++        executeSql(conn, "INSTALL httpfs; LOAD httpfs;");
++        executeSql(conn, "INSTALL parquet; LOAD parquet;");
++
++        String secretSql;
++        if (s3Endpoint != null && !s3Endpoint.isEmpty()) {
++            secretSql = String.format(
++                    Locale.getDefault(),
++                    "CREATE SECRET IF NOT EXISTS s3_secret (TYPE S3, KEY_ID '%s', SECRET '%s', REGION '%s', ENDPOINT '%s', USE_SSL false);",
++                    s3KeyId,
++                    s3Secret,
++                    s3Region,
++                    s3Endpoint);
++        } else {
++            secretSql = String.format(
++                    Locale.getDefault(),
++                    "CREATE SECRET IF NOT EXISTS s3_secret (TYPE S3, KEY_ID '%s', SECRET '%s', REGION '%s');",
++                    s3KeyId,
++                    s3Secret,
++                    s3Region);
++        }
++        executeSql(conn, secretSql);
++
++        if (isDuckLake) {
++            try {
++                executeSql(conn, "INSTALL postgres_scanner; LOAD postgres_scanner;");
++            } catch (SQLException e) {
++                LOG.warn("Failed to load postgres_scanner, trying postgres", e);
++                executeSql(conn, "INSTALL postgres; LOAD postgres;");
++            }
++
++            try {
++                executeSql(conn, "INSTALL ducklake; LOAD ducklake;");
++            } catch (SQLException e) {
++                LOG.warn("Failed to INSTALL/LOAD ducklake, trying core_nightly", e);
++                executeSql(conn, "FORCE INSTALL ducklake FROM core_nightly; LOAD ducklake;");
++            }
++
++            try {
++                executeSql(conn, "SET ducklake_max_retry_count = " + ducklakeMaxRetryCount + ";");
++                executeSql(conn, "SET ducklake_retry_wait_ms = 20;");
++                executeSql(conn, "SET ducklake_retry_backoff = 1.2;");
++            } catch (SQLException e) {
++                LOG.debug("Setting ducklake retry parameters was not supported", e);
++            }
++
++            StringBuilder connParams = new StringBuilder();
++            connParams.append(String.format("dbname=%s host=%s port=%s user=%s", pgDatabase, pgHost, pgPort, pgUser));
++            if (pgPassword != null && !pgPassword.isEmpty()) {
++                connParams.append(" password=").append(pgPassword);
++            }
++
++            String attachSql = String.format(
++                    Locale.getDefault(),
++                    "ATTACH 'ducklake:postgres:%s' AS ducklake (DATA_PATH '%s', DATA_INLINING_ROW_LIMIT 0);",
++                    connParams.toString(),
++                    ducklakeDataPath);
++            executeSql(conn, attachSql);
++
++            try {
++                executeSql(conn, "CALL ducklake.set_option('data_inlining_row_limit', 0);");
++            } catch (SQLException e) {
++                LOG.debug("Setting option via CALL ducklake.set_option was not needed or not supported", e);
++            }
++
++            try {
++                executeSql(conn, "USE ducklake;");
++            } catch (SQLException e) {
++                LOG.debug("Setting default schema to ducklake failed", e);
++            }
++        }
++        return conn;
++    }
++
++    private static void initRavenCatalog() {
++        Map<String, String> conf = Maps.newHashMap();
++        conf.put(CatalogProperties.URI, hmsUri);
++        conf.put(
++                CatalogProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS,
++                String.valueOf(TimeUnit.SECONDS.toMillis(10)));
++        conf.put(CatalogProperties.WAREHOUSE_LOCATION, warehouseLocation);
++        conf.put(CatalogProperties.FILE_IO_IMPL, S3FileIO.class.getName());
++        conf.put(S3FileIOProperties.ACCESS_KEY_ID, s3KeyId);
++        conf.put(S3FileIOProperties.SECRET_ACCESS_KEY, s3Secret);
++        conf.put(AwsClientProperties.CLIENT_REGION, s3Region);
++        if (s3Endpoint != null && !s3Endpoint.isEmpty()) {
++            conf.put(S3FileIOProperties.ENDPOINT, s3Endpoint);
++        }
++        conf.put("raven_address", ravenAddress);
++        conf.put("workspace_name", workspaceName);
++
++        AwsClientFactories.defaultFactory().initialize(conf);
++        s3 = AwsClientFactories.defaultFactory().s3();
++
++        HiveConf hiveConf = new HiveConf();
++        catalog2 = (HiveCatalog2) CatalogUtil.loadCatalog(
++                HiveCatalog2.class.getName(),
++                CatalogUtil.ICEBERG_CATALOG_TYPE_HIVE,
++                conf,
++                hiveConf);
++    }
++
++    private static void createDuckLakeTable(DuckDBConnection conn) throws SQLException {
++        StringBuilder colDefs = new StringBuilder();
++        for (int i = 1; i <= numColumns; i++) {
++            colDefs.append("col").append(i).append(" INTEGER");
++            if (i < numColumns) {
++                colDefs.append(", ");
++            }
++        }
++        String createSql = String.format(
++                Locale.getDefault(),
++                "CREATE TABLE IF NOT EXISTS ducklake.%s (%s);",
++                tableName,
++                colDefs.toString());
++        LOG.info("Creating DuckLake table: {}", createSql);
++        try (Statement stmt = conn.createStatement()) {
++            stmt.execute(createSql);
++        }
++    }
++
++    /**
++     * Generates all numFiles Parquet files in parallel in S3 using DuckDB, returning the in-memory list of file paths.
++     */
++    private static List<GeneratedFile> generateFilesParallel(String targetList, String location)
++            throws InterruptedException, ExecutionException {
++        LOG.info("Phase 1: Generating {} Parquet files in parallel using {} worker threads...",
++                numFiles, numFileGenThreads);
++
++        ExecutorService fileGenPool = Executors.newFixedThreadPool(numFileGenThreads);
++        List<GeneratedFile> allFiles = Collections.synchronizedList(Lists.newArrayListWithCapacity(numFiles));
++        AtomicInteger completed = new AtomicInteger(0);
++        long startGen = System.currentTimeMillis();
++
++        int filesPerThread = (numFiles + numFileGenThreads - 1) / numFileGenThreads;
++        List<Future<?>> futures = Lists.newArrayList();
++
++        for (int t = 0; t < numFileGenThreads; t++) {
++            final int startIdx = t * filesPerThread;
++            final int endIdx = Math.min(startIdx + filesPerThread, numFiles);
++            if (startIdx >= endIdx) {
++                continue;
++            }
++
++            futures.add(fileGenPool.submit(() -> {
++                try (Connection conn = DriverManager.getConnection("jdbc:duckdb:");
++                     Statement stmt = conn.createStatement()) {
++                    stmt.execute("INSTALL httpfs; LOAD httpfs;");
++                    stmt.execute("INSTALL parquet; LOAD parquet;");
++
++                    String secretSql;
++                    if (s3Endpoint != null && !s3Endpoint.isEmpty()) {
++                        secretSql = String.format(
++                                Locale.getDefault(),
++                                "CREATE SECRET IF NOT EXISTS s3_secret (TYPE S3, KEY_ID '%s', SECRET '%s', REGION '%s', ENDPOINT '%s', USE_SSL false);",
++                                s3KeyId,
++                                s3Secret,
++                                s3Region,
++                                s3Endpoint);
++                    } else {
++                        secretSql = String.format(
++                                Locale.getDefault(),
++                                "CREATE SECRET IF NOT EXISTS s3_secret (TYPE S3, KEY_ID '%s', SECRET '%s', REGION '%s');",
++                                s3KeyId,
++                                s3Secret,
++                                s3Region);
++                    }
++                    stmt.execute(secretSql);
++
++                    for (int i = startIdx; i < endIdx; i++) {
++                        int batchIdx = i / batchSize;
++                        String filePath = String.format(Locale.getDefault(), "%s/batch_%d/%s.parquet", location, batchIdx, UUID.randomUUID());
++                        String copySql = String.format(
++                                Locale.getDefault(),
++                                "COPY (SELECT %s FROM generate_series(%d, %d) AS t(x)) TO '%s' (FORMAT PARQUET);",
++                                targetList,
++                                i + 1,
++                                i + 1,
++                                filePath);
++                        stmt.execute(copySql);
++
++                        long size = 0L;
++                        if (!isDuckLake) {
++                            size = getFileSize(filePath);
++                        }
++                        allFiles.add(new GeneratedFile(i, filePath, size));
++
++                        int done = completed.incrementAndGet();
++                        if (done % logInterval == 0 || done == numFiles) {
++                            double elapsed = (System.currentTimeMillis() - startGen) / 1000.0;
++                            double rate = (double) done / (elapsed > 0 ? elapsed : 1.0);
++                            double eta = rate > 0 ? (double) (numFiles - done) / rate : 0;
++                            LOG.info("  [Phase 1] Generated {}/{} files ({:.1f}%) | Rate: {:.1f} files/s | Elapsed: {:.1f}s | ETA: {:.1f}s",
++                                    done, numFiles, ((done * 100.0) / numFiles), rate, elapsed, eta);
++                        }
++                    }
++                } catch (SQLException e) {
++                    LOG.error("SQLException during parallel file generation", e);
++                    throw new RuntimeException(e);
++                }
++            }));
++        }
++
++        fileGenPool.shutdown();
++        for (Future<?> f : futures) {
++            f.get();
++        }
++
++        long genElapsed = System.currentTimeMillis() - startGen;
++        LOG.info("Phase 1 complete: generated {} files in S3 in {:.2f}s ({:.1f} files/s).",
++                allFiles.size(), genElapsed / 1000.0, (double) allFiles.size() / (genElapsed / 1000.0 > 0 ? genElapsed / 1000.0 : 1.0));
++
++        allFiles.sort(Comparator.comparingInt(f -> f.fileIdx));
++        return allFiles;
++    }
++
++    private static void runDuckLake(DuckDBConnection conn, String targetList)
++            throws ExecutionException, InterruptedException, SQLException {
++        LOG.info("Starting DuckLake population: {} files, {} columns, table '{}'...",
++                numFiles, numColumns, tableName);
++        createDuckLakeTable(conn);
++
++        String location = String.format(Locale.getDefault(), "%s/%s.db/%s", warehouseLocation, dbName, tableName);
++        List<GeneratedFile> allFiles = generateFilesParallel(targetList, location);
++
++        int totalBatches = (allFiles.size() + batchSize - 1) / batchSize;
++        LOG.info("Phase 2: Starting parallel bulk commits to DuckLake using {} worker threads ({} files per batch, expecting {} snapshots)...",
++                numDuckDBInsertThreads, batchSize, totalBatches);
++
++        long startCommit = System.currentTimeMillis();
++        ExecutorService commitPool = Executors.newFixedThreadPool(numDuckDBInsertThreads);
++        AtomicInteger nextBatch = new AtomicInteger(0);
++        AtomicInteger completedBatches = new AtomicInteger(0);
++        List<Future<?>> commitFutures = Lists.newArrayList();
++
++        for (int t = 0; t < numDuckDBInsertThreads; t++) {
++            commitFutures.add(commitPool.submit(() -> {
++                try (DuckDBConnection workerConn = initDuckDB()) {
++                    int b;
++                    while ((b = nextBatch.getAndIncrement()) < totalBatches) {
++                        String batchGlob = String.format(Locale.getDefault(), "%s/batch_%d/*.parquet", location, b);
++                        String addSql = String.format(
++                                Locale.getDefault(),
++                                "CALL ducklake_add_data_files('ducklake', '%s', '%s');",
++                                tableName,
++                                batchGlob);
++
++                        boolean ok = false;
++                        for (int attempt = 0; attempt < 5; attempt++) {
++                            try {
++                                executeSql(workerConn, addSql);
++                                ok = true;
++                                break;
++                            } catch (SQLException e) {
++                                if (attempt == 4) {
++                                    LOG.error("Failed to add files for batch {} after retries", b, e);
++                                    throw e;
++                                }
++                                try {
++                                    Thread.sleep(50L + ThreadLocalRandom.current().nextInt(50));
++                                } catch (InterruptedException ie) {
++                                    Thread.currentThread().interrupt();
++                                    throw new RuntimeException(ie);
++                                }
++                            }
++                        }
++
++                        int done = completedBatches.incrementAndGet();
++                        if (done % Math.max(1, totalBatches / 10) == 0 || done == totalBatches) {
++                            double elapsed = (System.currentTimeMillis() - startCommit) / 1000.0;
++                            int filesDoneSoFar = Math.min(done * batchSize, allFiles.size());
++                            double rate = (double) filesDoneSoFar / (elapsed > 0 ? elapsed : 1.0);
++                            LOG.info("  [Phase 2] Committed {}/{} snapshots ({}/{} files) | Rate: {:.1f} files/s | Elapsed: {:.1f}s",
++                                    done, totalBatches, filesDoneSoFar, allFiles.size(), rate, elapsed);
++                        }
++                    }
++                } catch (Exception e) {
++                    LOG.error("Exception in DuckLake commit worker", e);
++                    throw new RuntimeException(e);
++                }
++            }));
++        }
++
++        commitPool.shutdown();
++        for (Future<?> f : commitFutures) {
++            f.get();
++        }
++
++        LOG.info("DuckLake bulk commit completed successfully in {:.2f}s.", (System.currentTimeMillis() - startCommit) / 1000.0);
++    }
++
++    private static void runRaven(
++            TableIdentifier tableIdent,
++            Schema schema,
++            PartitionSpec spec,
++            String targetList) throws ExecutionException, InterruptedException {
++        LOG.info("Starting Raven population: {} files, {} columns, table '{}.{}'...",
++                numFiles, numColumns, dbName, tableName);
++
++        initRavenCatalog();
++        String location = String.format("%s/%s.db/%s", warehouseLocation, dbName, tableName);
++
++        try {
++            catalog2.createNamespace(Namespace.of(dbName));
++        } catch (Exception e) {
++            LOG.debug("Namespace may already exist", e);
++        }
++
++        if (!catalog2.tableExists(tableIdent)) {
++            catalog2.createTable(tableIdent, schema, spec, location, ImmutableMap.of());
++        }
++
++        ravenCatalog = new RavenCatalog(ravenAddress);
++        Table table = catalog2.loadTable(tableIdent);
++
++        List<GeneratedFile> allFiles = generateFilesParallel(targetList, location);
++
++        int totalBatches = (allFiles.size() + batchSize - 1) / batchSize;
++        LOG.info("Phase 2: Starting single-threaded bulk commits to Iceberg and Raven ({} files per batch, expecting {} snapshots)...",
++                batchSize, totalBatches);
++
++        long startCommit = System.currentTimeMillis();
++
++        for (int b = 0; b < totalBatches; b++) {
++            int start = b * batchSize;
++            int end = Math.min(start + batchSize, allFiles.size());
++            List<GeneratedFile> batch = allFiles.subList(start, end);
++
++            // 1. Start Raven transaction
++            StartTransactionResponse ravenTxn = ravenCatalog.startTransaction(
++                    workspaceName, dbName, Lists.newArrayList(tableName));
++            long txnId = ravenTxn.getTxnId();
++            TableObject tableObject = ravenTxn.getTablesList().get(0);
++
++            // 2. Start Iceberg transaction
++            table = catalog2.loadTable(tableIdent);
++            AppendFiles txn = table.newFastAppend();
++
++            List<File2> fileLogs = Lists.newArrayList();
++            for (GeneratedFile gf : batch) {
++                Metrics metrics = computeStats(schema, gf.fileIdx);
++                DataFile newFile = DataFiles.builder(spec)
++                        .withFileSizeInBytes(gf.fileSize)
++                        .withFormat(FileFormat.PARQUET)
++                        .withMetrics(metrics)
++                        .withPath(gf.filePath)
++                        .build();
++
++                txn.appendFile(newFile);
++                fileLogs.add(new File2(gf.filePath, File2.File2Type.ADD, "data"));
++            }
++
++            // Commit to Iceberg
++            txn.commit2(fileLogs);
++
++            // Commit to Raven (including data and new metadata files)
++            List<FileObject> newDataFiles = Lists.newArrayList();
++            List<String> filesToReplace = Lists.newArrayList();
++
++            for (File2 file : fileLogs) {
++                switch (file.fileType()) {
++                    case ADD:
++                        FileObject newMetadataFileObject = FileObject.newBuilder()
++                                .setTag(file.tag()).setPath(file.path()).build();
++                        newDataFiles.add(newMetadataFileObject);
++                        break;
++                    case DELETE:
++                        filesToReplace.add(file.path());
++                        break;
++                    default:
++                        break;
++                }
++            }
++
++            ravenCatalog.finalRewriteFiles(tableObject, filesToReplace, newDataFiles, txnId);
++            boolean success = ravenCatalog.commit(txnId);
++            if (!success) {
++                LOG.warn("Raven transaction commit returned false for batch {}", b + 1);
++            }
++
++            if ((b + 1) % Math.max(1, totalBatches / 10) == 0 || b + 1 == totalBatches) {
++                double elapsed = (System.currentTimeMillis() - startCommit) / 1000.0;
++                double rate = (double) end / (elapsed > 0 ? elapsed : 1.0);
++                LOG.info("  [Phase 2] Committed {}/{} snapshots ({}/{} files) | Rate: {:.1f} files/s | Elapsed: {:.1f}s",
++                        b + 1, totalBatches, end, allFiles.size(), rate, elapsed);
++            }
++        }
++        LOG.info("Raven bulk commit completed successfully in {:.2f}s.", (System.currentTimeMillis() - startCommit) / 1000.0);
++    }
++
++    private static long getFileSize(String path) {
++        URI uri = URI.create(path);
++        String bucket = uri.getHost();
++        String key = uri.getPath().substring(1);
++        HeadObjectRequest headRequest = HeadObjectRequest.builder().bucket(bucket).key(key).build();
++        return s3.headObject(headRequest).contentLength();
++    }
++
++    public static long measurePostgresStorageBytes(
++            String host, String port, String database, String user, String password) throws SQLException {
++        String url = String.format(Locale.getDefault(), "jdbc:postgresql://%s:%s/%s", host, port, database);
++        Properties props = new Properties();
++        props.setProperty("user", user);
++        if (password != null && !password.isEmpty()) {
++            props.setProperty("password", password);
++        }
++
++        try (Connection conn = DriverManager.getConnection(url, props);
++             Statement stmt = conn.createStatement()) {
++
++            long dbSize = -1;
++            try (ResultSet rs = stmt.executeQuery(
++                    String.format(Locale.getDefault(), "SELECT pg_database_size('%s');", database))) {
++                if (rs.next()) {
++                    dbSize = rs.getLong(1);
++                }
++            }
++
++            // Log table-level storage breakdown
++            LOG.info("PostgreSQL storage size breakdown for database '{}':", database);
++            String tableBreakdownSql =
++                    "SELECT relname AS table_name, " +
++                    "       pg_total_relation_size(c.oid) AS total_bytes, " +
++                    "       pg_size_pretty(pg_total_relation_size(c.oid)) AS pretty_size " +
++                    "FROM pg_class c " +
++                    "JOIN pg_namespace n ON n.oid = c.relnamespace " +
++                    "WHERE nspname NOT IN ('pg_catalog', 'information_schema') " +
++                    "ORDER BY pg_total_relation_size(c.oid) DESC LIMIT 20;";
++
++            try (ResultSet rs = stmt.executeQuery(tableBreakdownSql)) {
++                while (rs.next()) {
++                    LOG.info("  Table {}: {} bytes ({})",
++                            rs.getString("table_name"),
++                            rs.getLong("total_bytes"),
++                            rs.getString("pretty_size"));
++                }
++            } catch (SQLException e) {
++                LOG.debug("Could not fetch table breakdown", e);
++            }
++
++            return dbSize;
++        }
++    }
++
++    private static String formatBytes(long bytes) {
++        if (bytes < 0) {
++            return "N/A";
++        }
++        if (bytes < 1024) {
++            return bytes + " B";
++        }
++        int exp = (int) (Math.log((double) bytes) / Math.log(1024));
++        String pre = "KMGTPE".charAt(exp - 1) + "B";
++        return String.format(Locale.getDefault(), "%.1f %s", (double) bytes / Math.pow(1024, exp), pre);
++    }
++
++    private static void writeResults(
++            Map<String, String> expConfigs,
++            long postgresStorageBytes,
++            double elapsedSeconds) throws IOException {
++
++        String prettySize = formatBytes(postgresStorageBytes);
++
++        LOG.info("================================================================================");
++        LOG.info(" Metadata Footprint Benchmark Result:");
++        LOG.info("   Catalog Type:             {}", catalogType);
++        LOG.info("   Files Written:            {}", numFiles);
++        LOG.info("   Columns:                  {}", numColumns);
++        LOG.info("   PostgreSQL Database:      {}", pgDatabase);
++        LOG.info("   Database Storage Size:    {} bytes ({})", postgresStorageBytes, prettySize);
++        LOG.info("   Elapsed Time:             {:.2f} s", elapsedSeconds);
++        LOG.info("================================================================================");
++
++        ObjectMapper mapper = new ObjectMapper();
++        mapper.enable(SerializationFeature.INDENT_OUTPUT);
++
++        ObjectNode resultNode = mapper.createObjectNode();
++        resultNode.put("exp_name", "MetadataFootprint");
++        resultNode.put("mode", mode);
++        resultNode.put("catalog_type", catalogType);
++        resultNode.put("num_files", numFiles);
++        resultNode.put("num_columns", numColumns);
++        resultNode.put("batch_size", batchSize);
++        resultNode.put("num_snapshots", (numFiles + batchSize - 1) / batchSize);
++        resultNode.put("num_threads", numThreads);
++        resultNode.put("num_file_gen_threads", numFileGenThreads);
++        resultNode.put("num_insert_threads", numDuckDBInsertThreads);
++        resultNode.put("pg_database", pgDatabase);
++        resultNode.put("pg_host", pgHost);
++        resultNode.put("pg_port", pgPort);
++        resultNode.put("postgres_storage_bytes", postgresStorageBytes);
++        resultNode.put("human_readable_size", prettySize);
++        resultNode.put("elapsed_seconds", elapsedSeconds);
++
++        // Include any non-secret configs in the JSON
++        ObjectNode configsNode = mapper.createObjectNode();
++        for (Map.Entry<String, String> entry : expConfigs.entrySet()) {
++            String k = entry.getKey().toLowerCase(Locale.getDefault());
++            if (!k.contains("secret") && !k.contains("password")) {
++                configsNode.put(entry.getKey(), entry.getValue());
++            }
++        }
++        resultNode.set("configs", configsNode);
++
++        String outputFile = expConfigs.get("output_file");
++        String expResultDir = expConfigs.get("exp_result_dir");
++
++        if (outputFile != null && !outputFile.isEmpty()) {
++            Path path = Paths.get(outputFile);
++            if (path.getParent() != null) {
++                Files.createDirectories(path.getParent());
++            }
++            if (outputFile.endsWith(".json")) {
++                try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
++                    writer.write(mapper.writeValueAsString(resultNode));
++                    writer.newLine();
++                }
++            } else {
++                try (BufferedWriter writer = Files.newBufferedWriter(
++                        path,
++                        StandardCharsets.UTF_8,
++                        StandardOpenOption.CREATE,
++                        StandardOpenOption.APPEND)) {
++                    writer.write(String.format(
++                            Locale.getDefault(),
++                            "%d,%d,%s,%d,%s\n",
++                            numColumns,
++                            numFiles,
++                            catalogType,
++                            postgresStorageBytes,
++                            prettySize));
++                }
++            }
++            LOG.info("Result written to: {}", outputFile);
++        }
++
++        if (expResultDir != null && !expResultDir.isEmpty()) {
++            Path dir = Paths.get(expResultDir);
++            Files.createDirectories(dir);
++
++            // 1. Write JSON summary
++            Path jsonPath = dir.resolve(String.format(
++                    Locale.getDefault(),
++                    "footprint-%s-%dcols-%dfiles.json",
++                    catalogType,
++                    numColumns,
++                    numFiles));
++            try (BufferedWriter writer = Files.newBufferedWriter(jsonPath, StandardCharsets.UTF_8)) {
++                writer.write(mapper.writeValueAsString(resultNode));
++                writer.newLine();
++            }
++
++            // 2. Append to footprint_result.txt
++            Path txtPath = dir.resolve("footprint_result.txt");
++            boolean writeHeader = !Files.exists(txtPath);
++            try (BufferedWriter writer = Files.newBufferedWriter(
++                    txtPath,
++                    StandardCharsets.UTF_8,
++                    StandardOpenOption.CREATE,
++                    StandardOpenOption.APPEND)) {
++                if (writeHeader) {
++                    writer.write("columns,files,catalog_type,postgres_data_storage_bytes,human_readable_size\n");
++                }
++                writer.write(String.format(
++                        Locale.getDefault(),
++                        "%d,%d,%s,%d,%s\n",
++                        numColumns,
++                        numFiles,
++                        catalogType,
++                        postgresStorageBytes,
++                        prettySize));
++            }
++            LOG.info("Results saved in result directory: {}", expResultDir);
++        }
++    }
++
++    public static void main(String[] args) throws Exception {
++        if (args.length < 1) {
++            LOG.error("Usage: MetadataFootprint <config.json>");
++            return;
++        }
++
++        Map<String, String> expConfigs = parseJsonToMap(args[0]);
++        loadConfigs(expConfigs);
++
++        Schema schema = createSchema(numColumns);
++        PartitionSpec spec = PartitionSpec.builderFor(schema).build();
++        String targetList = schemaToTargetList(schema);
++
++        try (DuckDBConnection duckDbConn = initDuckDB()) {
++            TableIdentifier tableIdent = TableIdentifier.of(dbName, tableName);
++
++            if (!isDuckLake) {
++                initRavenCatalog();
++                ravenCatalog = new RavenCatalog(ravenAddress);
++            }
++
++            if ("read".equalsIgnoreCase(mode)) {
++                // Operation 2: Measure read performance only
++                LOG.info("Running MetadataFootprint in READ mode: executing {} read measurements...",
++                        numMeasures);
++                List<ReadMeasurement> readMeasurements;
++                if (isDuckLake) {
++                    readMeasurements = testReadPerformanceDuckLake(duckDbConn, numMeasures, numFiles, FIRST_COL_NAME);
++                } else {
++                    readMeasurements = testReadPerformanceRaven(duckDbConn, tableIdent, numMeasures, numFiles, FIRST_COL_NAME);
++                }
++                writeReadResults(expConfigs, readMeasurements, catalogType, numColumns, numFiles);
++            } else {
++                // Operation 1: Populate database only (default)
++                LOG.info("Running MetadataFootprint in POPULATE mode (default): inserting {} files and measuring footprint...",
++                        numFiles);
++                long startTimeMs = System.currentTimeMillis();
++
++                if (isDuckLake) {
++                    runDuckLake(duckDbConn, targetList);
++                } else {
++                    runRaven(tableIdent, schema, spec, targetList);
++                }
++
++                long elapsedMs = System.currentTimeMillis() - startTimeMs;
++                double elapsedSeconds = elapsedMs / 1000.0;
++
++                // Measure total data storage footprint in PostgreSQL
++                LOG.info("Connecting to PostgreSQL at {}:{} (database: {}) to measure footprint...",
++                        pgHost, pgPort, pgDatabase);
++                long storageBytes = -1;
++                try {
++                    storageBytes = measurePostgresStorageBytes(pgHost, pgPort, pgDatabase, pgUser, pgPassword);
++                } catch (SQLException e) {
++                    LOG.error("Failed to measure PostgreSQL storage footprint", e);
++                }
++
++                // Write output for footprint
++                writeResults(expConfigs, storageBytes, elapsedSeconds);
++            }
++        }
++    }
++
++    /**
++     * Tests read performance on DuckLake by selecting full row filtered on col1 = targetVal.
++     */
++    private static List<ReadMeasurement> testReadPerformanceDuckLake(
++            DuckDBConnection conn, int measures, int totalFiles, String firstColName) throws SQLException {
++        LOG.info("Testing read performance for DuckLake: {} measurements across {} files...",
++                measures, totalFiles);
++        List<ReadMeasurement> measurements = Lists.newArrayListWithCapacity(measures);
++
++        try (Statement stmt = conn.createStatement()) {
++            for (int i = 0; i < measures; i++) {
++                int targetVal = ThreadLocalRandom.current().nextInt(1, totalFiles + 1);
++
++                Instant start = Instant.now();
++                String query = String.format(
++                        Locale.getDefault(),
++                        "SELECT * FROM ducklake.%s WHERE %s = %d;",
++                        tableName,
++                        firstColName,
++                        targetVal);
++
++                try (ResultSet rs = stmt.executeQuery(query)) {
++                    while (rs.next()) {
++                        for (int col = 1; col <= numColumns; col++) {
++                            rs.getInt(col);
++                        }
++                    }
++                }
++                Instant end = Instant.now();
++
++                long latencyMs = Duration.between(start, end).toMillis();
++                measurements.add(new ReadMeasurement(i + 1, targetVal, latencyMs, start, end));
++
++                if ((i + 1) % Math.max(1, measures / 10) == 0 || i + 1 == measures) {
++                    LOG.info("  -> Read {}/{} measurements completed (latest latency: {} ms)",
++                            i + 1, measures, latencyMs);
++                }
++            }
++        }
++        return measurements;
++    }
++
++    /**
++     * Tests read performance on Raven by planning files with Iceberg metrics filter on col1 = targetVal
++     * and scanning the matching files with DuckDB.
++     */
++    private static List<ReadMeasurement> testReadPerformanceRaven(
++            DuckDBConnection duckDbConn,
++            TableIdentifier tableIdent,
++            int measures,
++            int totalFiles,
++            String firstColName) throws SQLException {
++        LOG.info("Testing read performance for Raven: {} measurements across {} files...",
++                measures, totalFiles);
++        List<ReadMeasurement> measurements = Lists.newArrayListWithCapacity(measures);
++
++        try (Statement stmt = duckDbConn.createStatement()) {
++            for (int i = 0; i < measures; i++) {
++                int targetVal = ThreadLocalRandom.current().nextInt(1, totalFiles + 1);
++
++                Instant start = Instant.now();
++
++                // 1. Load table metadata via Raven / Hive catalog
++                Table table = catalog2.loadTable(tableIdent);
++
++                // 2. Plan files using Iceberg filter on the first column
++                List<String> filesToScan = Lists.newArrayList();
++                try (CloseableIterable<FileScanTask> tasks = table.newScan()
++                        .filter(Expressions.equal(firstColName, targetVal))
++                        .planFiles()) {
++                    for (FileScanTask task : tasks) {
++                        filesToScan.add(task.file().location());
++                    }
++                } catch (IOException e) {
++                    LOG.error("Failed to plan files for Raven read query", e);
++                }
++
++                // 3. Scan the matching files using DuckDB
++                if (!filesToScan.isEmpty()) {
++                    String filesStr = filesToScan.stream()
++                            .map(s -> "'" + s + "'")
++                            .collect(Collectors.joining(","));
++                    String query = String.format(
++                            Locale.getDefault(),
++                            "SELECT * FROM read_parquet([ %s ]) WHERE %s = %d;",
++                            filesStr,
++                            firstColName,
++                            targetVal);
++                    try (ResultSet rs = stmt.executeQuery(query)) {
++                        while (rs.next()) {
++                            for (int col = 1; col <= numColumns; col++) {
++                                rs.getInt(col);
++                            }
++                        }
++                    }
++                }
++
++                Instant end = Instant.now();
++
++                long latencyMs = Duration.between(start, end).toMillis();
++                measurements.add(new ReadMeasurement(i + 1, targetVal, latencyMs, start, end));
++
++                if ((i + 1) % Math.max(1, measures / 10) == 0 || i + 1 == measures) {
++                    LOG.info("  -> Read {}/{} measurements completed (latest latency: {} ms)",
++                            i + 1, measures, latencyMs);
++                }
++            }
++        }
++        return measurements;
++    }
++
++    /**
++     * Writes read benchmark measurements and latency percentiles to a separate output file.
++     */
++    private static void writeReadResults(
++            Map<String, String> expConfigs,
++            List<ReadMeasurement> measurements,
++            String catalogType,
++            int numCols,
++            int totalFiles) throws IOException {
++
++        if (measurements == null || measurements.isEmpty()) {
++            return;
++        }
++
++        List<Long> latencies = measurements.stream()
++                .map(m -> m.latencyMs)
++                .sorted()
++                .collect(Collectors.toList());
++
++        long sum = 0;
++        for (long l : latencies) {
++            sum += l;
++        }
++        double avg = (double) sum / (double) latencies.size();
++        long min = latencies.get(0);
++        long max = latencies.get(latencies.size() - 1);
++        long p50 = latencies.get((int) ((double) latencies.size() * 0.50));
++        long p95 = latencies.get((int) ((double) latencies.size() * 0.95));
++        long p99 = latencies.get(Math.min(latencies.size() - 1, (int) ((double) latencies.size() * 0.99)));
++
++        LOG.info("================================================================================");
++        LOG.info(" Read Performance Benchmark Result ({}):", catalogType);
++        LOG.info("   Measurements:             {}", latencies.size());
++        LOG.info("   Average Latency:          {:.2f} ms", avg);
++        LOG.info("   Min / Max Latency:        {} ms / {} ms", min, max);
++        LOG.info("   P50 / P95 / P99:          {} ms / {} ms / {} ms", p50, p95, p99);
++        LOG.info("================================================================================");
++
++        ObjectMapper mapper = new ObjectMapper();
++        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
++
++        String readOutputFile = expConfigs.get("read_output_file");
++        String expResultDir = expConfigs.get("exp_result_dir");
++
++        // Helper consumer to write NDJSON entries (1 row per measurement, no miscellaneous outer wrappers)
++        Path targetLogPath = null;
++        if (readOutputFile != null && !readOutputFile.isEmpty()) {
++            targetLogPath = Paths.get(readOutputFile);
++        } else if (expConfigs.containsKey("output_file")) {
++            String outputFile = expConfigs.get("output_file");
++            Path parent = Paths.get(outputFile).getParent();
++            String fileName = Paths.get(outputFile).getFileName().toString();
++            String readFileName = fileName.replace("footprint", "read-latency");
++            if (readFileName.equals(fileName)) {
++                readFileName = "read-latency-" + fileName;
++            }
++            targetLogPath = parent != null ? parent.resolve(readFileName) : Paths.get(readFileName);
++        } else if (expResultDir != null && !expResultDir.isEmpty()) {
++            Path dir = Paths.get(expResultDir);
++            targetLogPath = dir.resolve(String.format(
++                    Locale.getDefault(),
++                    "read-latency-%s-%dcols-%dfiles.json",
++                    catalogType,
++                    numCols,
++                    totalFiles));
++        }
++
++        if (targetLogPath != null) {
++            if (targetLogPath.getParent() != null) {
++                Files.createDirectories(targetLogPath.getParent());
++            }
++            try (BufferedWriter writer = Files.newBufferedWriter(targetLogPath, StandardCharsets.UTF_8)) {
++                for (ReadMeasurement m : measurements) {
++                    ObjectNode row = mapper.createObjectNode();
++                    row.put("iteration", m.iteration);
++                    row.put("target_value", m.targetValue);
++                    row.put("latency_ms", m.latencyMs);
++                    row.put("catalog_type", catalogType);
++                    row.put("num_columns", numCols);
++                    row.put("num_files", totalFiles);
++                    row.put("start", m.start.toString());
++                    row.put("end", m.end.toString());
++
++                    writer.write(mapper.writeValueAsString(row));
++                    writer.newLine(); // Strictly NDJSON: one line per record for pandas.read_json(..., lines=True)
++                }
++            }
++            LOG.info("Read measurement NDJSON written to: {}", targetLogPath);
++        }
++
++        if (expResultDir != null && !expResultDir.isEmpty()) {
++            Path dir = Paths.get(expResultDir);
++            Files.createDirectories(dir);
++
++            // Append summary to summary.json
++            Path summaryJsonPath = dir.resolve("summary.json");
++            ObjectNode summaryNode = mapper.createObjectNode();
++            summaryNode.put("exp_name", "MetadataFootprintRead");
++            summaryNode.put("catalog_type", catalogType);
++            summaryNode.put("num_files", totalFiles);
++            summaryNode.put("num_columns", numCols);
++            summaryNode.put("num_measures", latencies.size());
++            summaryNode.put("avg_latency_ms", avg);
++            summaryNode.put("min_latency_ms", min);
++            summaryNode.put("max_latency_ms", max);
++            summaryNode.put("p50_latency_ms", p50);
++            summaryNode.put("p95_latency_ms", p95);
++            summaryNode.put("p99_latency_ms", p99);
++
++            try (BufferedWriter writer = Files.newBufferedWriter(
++                    summaryJsonPath,
++                    StandardCharsets.UTF_8,
++                    StandardOpenOption.CREATE,
++                    StandardOpenOption.APPEND)) {
++                writer.write(mapper.writeValueAsString(summaryNode));
++                writer.newLine();
++            }
++
++            // Append to summary text file
++            Path txtPath = dir.resolve("read_result.txt");
++            boolean writeHeader = !Files.exists(txtPath);
++            try (BufferedWriter writer = Files.newBufferedWriter(
++                    txtPath,
++                    StandardCharsets.UTF_8,
++                    StandardOpenOption.CREATE,
++                    StandardOpenOption.APPEND)) {
++                if (writeHeader) {
++                    writer.write("columns,files,catalog_type,num_measures,avg_latency_ms,min_ms,max_ms,p50_ms,p95_ms,p99_ms\n");
++                }
++                writer.write(String.format(
++                        Locale.getDefault(),
++                        "%d,%d,%s,%d,%.2f,%d,%d,%d,%d,%d\n",
++                        numCols,
++                        totalFiles,
++                        catalogType,
++                        latencies.size(),
++                        avg,
++                        min,
++                        max,
++                        p50,
++                        p95,
++                        p99));
++            }
++            LOG.info("Read summary saved in result directory: {}", expResultDir);
++        }
++    }
++}
 diff --git a/exp/src/main/java/org/apache/iceberg/exp/MultiTableTxn1.java b/exp/src/main/java/org/apache/iceberg/exp/MultiTableTxn1.java
 new file mode 100644
 index 000000000..6932a32c6
@@ -10393,6 +11681,816 @@ index 000000000..b308fe94d
 +    }
 +
 +}
+diff --git a/exp/src/main/java/org/apache/iceberg/exp/MultiTableTxn4.java b/exp/src/main/java/org/apache/iceberg/exp/MultiTableTxn4.java
+new file mode 100644
+index 000000000..9efb7f64f
+--- /dev/null
++++ b/exp/src/main/java/org/apache/iceberg/exp/MultiTableTxn4.java
+@@ -0,0 +1,804 @@
++/*
++ * Licensed to the Apache Software Foundation (ASF) under one
++ * or more contributor license agreements.  See the NOTICE file
++ * distributed with this work for additional information
++ * regarding copyright ownership.  The ASF licenses this file
++ * to you under the Apache License, Version 2.0 (the
++ * "License"); you may not use this file except in compliance
++ * with the License.  You may obtain a copy of the License at
++ *
++ *   http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing,
++ * software distributed under the License is distributed on an
++ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++ * KIND, either express or implied.  See the License for the
++ * specific language governing permissions and limitations
++ * under the License.
++ */
++package org.apache.iceberg.exp;
++
++import com.fasterxml.jackson.core.type.TypeReference;
++import com.fasterxml.jackson.databind.ObjectMapper;
++import com.fasterxml.jackson.databind.SerializationFeature;
++import com.fasterxml.jackson.databind.node.ObjectNode;
++import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
++import java.io.BufferedWriter;
++import java.io.File;
++import java.io.IOException;
++import java.net.URI;
++import java.nio.charset.StandardCharsets;
++import java.nio.file.Files;
++import java.nio.file.Paths;
++import java.nio.file.StandardOpenOption;
++import java.sql.DriverManager;
++import java.sql.SQLException;
++import java.sql.Statement;
++import java.time.Instant;
++import java.time.LocalTime;
++import java.util.List;
++import java.util.Locale;
++import java.util.Map;
++import java.util.Optional;
++import java.util.UUID;
++import java.util.concurrent.ExecutorService;
++import java.util.concurrent.Executors;
++import java.util.concurrent.Future;
++import java.util.concurrent.ScheduledExecutorService;
++import java.util.concurrent.ThreadLocalRandom;
++import java.util.concurrent.TimeUnit;
++import java.util.concurrent.atomic.AtomicBoolean;
++import java.util.function.BiConsumer;
++import java.util.stream.Collectors;
++import java.util.stream.Stream;
++import org.apache.commons.math3.distribution.ZipfDistribution;
++import org.apache.iceberg.CatalogProperties;
++import org.apache.iceberg.Schema;
++import org.apache.iceberg.aws.AwsClientFactories;
++import org.apache.iceberg.aws.AwsClientProperties;
++import org.apache.iceberg.aws.s3.S3FileIO;
++import org.apache.iceberg.aws.s3.S3FileIOProperties;
++import org.apache.iceberg.raven.CatalogOuterClass;
++import org.apache.iceberg.raven.CatalogOuterClass.FileObject;
++import org.apache.iceberg.raven.CatalogOuterClass.TableObject;
++import org.apache.iceberg.raven.RavenCatalog;
++import org.apache.iceberg.relocated.com.google.common.collect.Lists;
++import org.apache.iceberg.relocated.com.google.common.collect.Maps;
++import org.apache.iceberg.types.Types;
++import org.duckdb.DuckDBConnection;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import software.amazon.awssdk.services.s3.S3Client;
++import software.amazon.awssdk.services.s3.model.Delete;
++import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
++import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
++import software.amazon.awssdk.services.s3.model.S3Exception;
++
++/**
++ * MultiTableTxn4 benchmarks multi-table transactions for insert-only workloads
++ * supporting both Raven and DuckLake (with PostgreSQL catalog metadata and S3 storage).
++ */
++public class MultiTableTxn4 {
++
++    private MultiTableTxn4() {}
++
++    /**
++     * Thread-safe table generator supporting Zipfian skew (skew > 0) or uniform distribution (skew == 0).
++     */
++    public static class ZipfGenerator {
++        private final ThreadLocal<ZipfDistribution> threadLocalZipf;
++        private final int numTables;
++        private final boolean isUniform;
++
++        public ZipfGenerator(int numTables, double skew) {
++            if (numTables <= 0 || skew < 0.0) {
++                throw new IllegalArgumentException("numTables must be > 0 and skew must be >= 0");
++            }
++            this.numTables = numTables;
++            this.isUniform = (skew == 0.0);
++            if (!isUniform) {
++                this.threadLocalZipf = ThreadLocal.withInitial(
++                        () -> new ZipfDistribution(numTables, skew)
++                );
++            } else {
++                this.threadLocalZipf = null;
++            }
++        }
++
++        public int getNext() {
++            if (isUniform) {
++                return ThreadLocalRandom.current().nextInt(1, numTables + 1);
++            }
++            return threadLocalZipf.get().sample();
++        }
++    }
++
++    /**
++     * Stores the start and end timestamps of an operation.
++     */
++    public static class TimePair {
++        public final Instant start;
++        public final Instant end;
++
++        public TimePair(Instant start, Instant end) {
++            this.start = start;
++            this.end = end;
++        }
++
++        public long getDurationMillis() {
++            return end.toEpochMilli() - start.toEpochMilli();
++        }
++    }
++
++    /**
++     * Exports per-transaction logs and overall summary to JSON.
++     */
++    public static class MetricsExporter {
++        public static void exportMetricsToLog(String outputFile) {
++            ObjectMapper mapper = new ObjectMapper();
++            mapper.registerModule(new JavaTimeModule());
++            mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
++
++            try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(outputFile), StandardCharsets.UTF_8)) {
++                for (int i = 0; i < TXN_TIMES.size(); i++) {
++                    for (int j = 0; j < TXN_TIMES.get(i).size(); j++) {
++                        ObjectNode row = mapper.createObjectNode();
++                        row.put("threadNum", i);
++                        row.put("catalog_type", isDuckLake ? "ducklake" : "raven");
++                        row.put("success", OP_SUCCESS.get(i).get(j));
++                        row.put("type", "insert");
++                        addTimeBlock(mapper, row, "txn_time", TXN_TIMES.get(i).get(j));
++                        row.put("duration_ms", TXN_TIMES.get(i).get(j).getDurationMillis());
++
++                        String jsonLine = mapper.writeValueAsString(row);
++                        writer.write(jsonLine);
++                        writer.newLine();
++                    }
++                }
++            } catch (IOException e) {
++                LOG.info("IO Error during result output", e);
++            }
++        }
++
++        public static void appendSummaryToJson(String outputFile) {
++            ObjectMapper mapper = new ObjectMapper();
++
++            int numTxn = 0;
++            for (List<TimePair> txnTimes : TXN_TIMES) {
++                numTxn += txnTimes.size();
++            }
++
++            double totalLatencyMillis = 0;
++            for (int i = 0; i < TXN_TIMES.size(); i++) {
++                for (int j = 0; j < TXN_TIMES.get(i).size(); j++) {
++                    totalLatencyMillis += TXN_TIMES.get(i).get(j).getDurationMillis();
++                }
++            }
++
++            int numSuccess = 0;
++            int numFailure = 0;
++            for (List<Boolean> opSuccessList : OP_SUCCESS) {
++                for (Boolean success : opSuccessList) {
++                    if (success) {
++                        numSuccess += 1;
++                    } else {
++                        numFailure += 1;
++                    }
++                }
++            }
++
++            double avgLatency = (numTxn == 0) ? 0 : (totalLatencyMillis / numTxn);
++
++            ObjectNode summaryNode = mapper.createObjectNode();
++            summaryNode.put("exp_name", "MultiTableTxn4");
++            summaryNode.put("catalog_type", isDuckLake ? "ducklake" : "raven");
++            summaryNode.put("duration", durationStr);
++            summaryNode.put("num_threads", numThreads);
++            summaryNode.put("num_tables", numTables);
++            summaryNode.put("num_txn", numTxn);
++            summaryNode.put("num_success", numSuccess);
++            summaryNode.put("num_failure", numFailure);
++            summaryNode.put("avg_latency", avgLatency);
++            if (!isDuckLake) {
++                summaryNode.put("num_retries", numRetries);
++                summaryNode.put("start_backoff_ms", startBackoffMs);
++                summaryNode.put("backoff_multiplier", backoffMultiplier);
++            }
++
++            try (BufferedWriter writer = Files.newBufferedWriter(
++                    Paths.get(outputFile),
++                    StandardCharsets.UTF_8,
++                    StandardOpenOption.CREATE,
++                    StandardOpenOption.APPEND)) {
++                String jsonLine = mapper.writeValueAsString(summaryNode);
++                writer.write(jsonLine);
++                writer.newLine();
++            } catch (IOException e) {
++                LOG.info("IO Error during result output", e);
++            }
++        }
++
++        private static void addTimeBlock(ObjectMapper mapper, ObjectNode parent, String fieldName, TimePair timePair) {
++            if (timePair == null) {
++                return;
++            }
++            ObjectNode timeNode = mapper.createObjectNode();
++            timeNode.put("start", timePair.start.toString());
++            timeNode.put("end", timePair.end.toString());
++            parent.set(fieldName, timeNode);
++        }
++    }
++
++    private static final Logger LOG = LoggerFactory.getLogger(MultiTableTxn4.class);
++    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
++    private static final int DEFAULT_NUM_TABLES = 1000;
++    private static final int MAX_NUM_TABLES_PER_OP = 5;
++
++    // Experiment config variables
++    private static boolean isDuckLake;
++    private static int numTables = DEFAULT_NUM_TABLES;
++    private static float skew;
++    private static String durationStr;
++    private static String workspaceName;
++    private static String dbName;
++    private static String tableName;
++    private static String columnName;
++    private static int numThreads;
++    private static int numRowsPerFile;
++    private static String warehouseLocation;
++    private static String s3Secret;
++    private static String s3KeyId;
++    private static String s3Region;
++    private static String s3Endpoint;
++    private static S3Client s3;
++    private static String ravenAddress;
++    private static ZipfGenerator zipfGen;
++
++    // Single-column schema to minimize file-level statistics overhead
++    private static Schema schema;
++
++    // DuckLake PostgreSQL connection parameters
++    private static String pgHost;
++    private static String pgPort;
++    private static String pgUser;
++    private static String pgPassword;
++    private static String pgDbName;
++    private static String ducklakeDataPath;
++
++    // Raven retry and backoff parameters
++    private static int numRetries = 10;
++    private static long startBackoffMs = 100L;
++    private static double backoffMultiplier = 1.5;
++
++    // Catalogs and connections
++    private static final List<RavenCatalog> RAVEN_CATALOGS = Lists.newArrayList();
++    private static final List<DuckDBConnection> DUCK_DB_CONNECTIONS = Lists.newArrayList();
++
++    // End-to-end measurements collected per thread
++    private static final List<List<TimePair>> TXN_TIMES = Lists.newArrayList();
++    private static final List<List<Boolean>> OP_SUCCESS = Lists.newArrayList();
++
++    public static Map<String, String> parseJsonToMap(String jsonFilePath) throws IOException {
++        File file = new File(jsonFilePath);
++        return JSON_MAPPER.readValue(file, new TypeReference<Map<String, String>>() {});
++    }
++
++    /**
++     * Initializes Raven catalog and AWS S3 client (used only when is_duck_lake is false).
++     */
++    public static void initRavenCatalog() {
++        Map<String, String> conf = Maps.newHashMap();
++        conf.put(CatalogProperties.URI, "thrift://localhost:9083");
++        conf.put(
++                CatalogProperties.CLIENT_POOL_CACHE_EVICTION_INTERVAL_MS,
++                String.valueOf(TimeUnit.SECONDS.toMillis(10)));
++        conf.put(CatalogProperties.WAREHOUSE_LOCATION, warehouseLocation);
++        conf.put(CatalogProperties.FILE_IO_IMPL, S3FileIO.class.getName());
++        conf.put(S3FileIOProperties.ACCESS_KEY_ID, s3KeyId);
++        conf.put(S3FileIOProperties.SECRET_ACCESS_KEY, s3Secret);
++        conf.put(AwsClientProperties.CLIENT_REGION, s3Region);
++        conf.put("raven_address", ravenAddress);
++        conf.put("workspace_name", workspaceName);
++
++        AwsClientFactories.defaultFactory().initialize(conf);
++        s3 = AwsClientFactories.defaultFactory().s3();
++    }
++
++    public static void main(String[] args) throws Exception {
++        Map<String, String> expConfigs = parseJsonToMap(args[0]);
++
++        // Catalog type flag: DuckLake vs Raven
++        String isDuckLakeStr = expConfigs.get("is_duck_lake");
++        isDuckLake = isDuckLakeStr != null && (isDuckLakeStr.equalsIgnoreCase("true") || isDuckLakeStr.equals("1"));
++
++        skew = Float.parseFloat(expConfigs.get("skew"));
++        durationStr = expConfigs.get("duration");
++        workspaceName = expConfigs.getOrDefault("workspace_name", "public");
++        dbName = expConfigs.getOrDefault("db_name", "retail");
++        tableName = expConfigs.getOrDefault("table_name", "store_sales");
++        columnName = expConfigs.getOrDefault("column_name", "col1");
++
++        // Single integer column schema
++        schema = new Schema(Types.NestedField.required(1, columnName, Types.IntegerType.get()));
++
++        if (expConfigs.containsKey("num_tables")) {
++            numTables = Integer.parseInt(expConfigs.get("num_tables"));
++        } else {
++            numTables = DEFAULT_NUM_TABLES;
++        }
++
++        numThreads = Integer.parseInt(expConfigs.get("num_threads"));
++        numRowsPerFile = Integer.parseInt(expConfigs.get("num_rows_per_file"));
++        warehouseLocation = expConfigs.get("warehouse_location");
++        s3Secret = expConfigs.get("s3_secret");
++        s3KeyId = expConfigs.get("s3_key_id");
++        s3Region = expConfigs.get("s3_region");
++        s3Endpoint = expConfigs.get("s3_endpoint");
++
++        if (isDuckLake) {
++            pgHost = expConfigs.getOrDefault("pg_host", expConfigs.getOrDefault("db_host", "127.0.0.1"));
++            pgPort = expConfigs.getOrDefault("pg_port", expConfigs.getOrDefault("db_port", "5432"));
++            pgUser = expConfigs.getOrDefault("pg_user", expConfigs.getOrDefault("db_user", "postgres"));
++            pgPassword = expConfigs.getOrDefault("pg_password", expConfigs.getOrDefault("db_password", ""));
++            pgDbName = expConfigs.getOrDefault("pg_db_name", expConfigs.getOrDefault("pg_dbname", expConfigs.getOrDefault("db_name", "ducklakedb")));
++            ducklakeDataPath = expConfigs.getOrDefault("ducklake_data_path", warehouseLocation);
++        } else {
++            ravenAddress = expConfigs.get("raven_address");
++            if (expConfigs.containsKey("num_retries")) {
++                numRetries = Integer.parseInt(expConfigs.get("num_retries"));
++            } else if (expConfigs.containsKey("max_retries")) {
++                numRetries = Integer.parseInt(expConfigs.get("max_retries"));
++            } else if (expConfigs.containsKey("retry_count")) {
++                numRetries = Integer.parseInt(expConfigs.get("retry_count"));
++            }
++
++            if (expConfigs.containsKey("start_backoff_ms")) {
++                startBackoffMs = Long.parseLong(expConfigs.get("start_backoff_ms"));
++            } else if (expConfigs.containsKey("backoff_start_ms")) {
++                startBackoffMs = Long.parseLong(expConfigs.get("backoff_start_ms"));
++            } else if (expConfigs.containsKey("retry_wait_ms")) {
++                startBackoffMs = Long.parseLong(expConfigs.get("retry_wait_ms"));
++            }
++
++            if (expConfigs.containsKey("backoff_multiplier")) {
++                backoffMultiplier = Double.parseDouble(expConfigs.get("backoff_multiplier"));
++            } else if (expConfigs.containsKey("retry_multiplier")) {
++                backoffMultiplier = Double.parseDouble(expConfigs.get("retry_multiplier"));
++            } else if (expConfigs.containsKey("retry_backoff")) {
++                backoffMultiplier = Double.parseDouble(expConfigs.get("retry_backoff"));
++            }
++
++            initRavenCatalog();
++            int numRaven = Math.min(numThreads, 6);
++            for (int i = 0; i < numRaven; i++) {
++                RAVEN_CATALOGS.add(new RavenCatalog(ravenAddress));
++            }
++        }
++
++        zipfGen = new ZipfGenerator(numTables, skew);
++
++        // Initialize thread 0 connection first
++        DUCK_DB_CONNECTIONS.add(createDuckDBConnection());
++
++        // In case of DuckLake, create all 1000 tables following the single column schema before starting
++        if (isDuckLake) {
++            createDuckLakeTables(DUCK_DB_CONNECTIONS.get(0));
++        }
++
++        // Initialize remaining per-thread DuckDB instances
++        for (int i = 1; i < numThreads; i++) {
++            DUCK_DB_CONNECTIONS.add(createDuckDBConnection());
++        }
++
++        // Initialize per-thread measurement lists
++        for (int i = 0; i < numThreads; i++) {
++            TXN_TIMES.add(Lists.newArrayList());
++            OP_SUCCESS.add(Lists.newArrayList());
++        }
++
++        runExp(expConfigs);
++    }
++
++    private static void executeSql(DuckDBConnection conn, String sql) throws SQLException {
++        try (Statement stmt = conn.createStatement()) {
++            stmt.execute(sql);
++        }
++    }
++
++    /**
++     * Creates and sets up a per-thread DuckDB connection.
++     * Loads httpfs, parquet, and S3 credentials. If is_duck_lake is true, also loads
++     * PostgreSQL scanner, DuckLake, disables data inlining (DATA_INLINING_ROW_LIMIT 0),
++     * and attaches the DuckLake catalog.
++     */
++    private static DuckDBConnection createDuckDBConnection() throws SQLException {
++        DuckDBConnection conn = (DuckDBConnection) DriverManager.getConnection("jdbc:duckdb:");
++        executeSql(conn, "INSTALL httpfs; LOAD httpfs;");
++        executeSql(conn, "INSTALL parquet; LOAD parquet;");
++
++        // Configure S3 secret for S3 storage access
++        String secretSql;
++        if (s3Endpoint != null && !s3Endpoint.isEmpty()) {
++            secretSql = String.format(
++                    Locale.getDefault(),
++                    "CREATE SECRET IF NOT EXISTS s3_secret (TYPE S3, KEY_ID '%s', SECRET '%s', REGION '%s', ENDPOINT '%s', USE_SSL false);",
++                    s3KeyId,
++                    s3Secret,
++                    s3Region,
++                    s3Endpoint);
++        } else {
++            secretSql = String.format(
++                    Locale.getDefault(),
++                    "CREATE SECRET IF NOT EXISTS s3_secret (TYPE S3, KEY_ID '%s', SECRET '%s', REGION '%s');",
++                    s3KeyId,
++                    s3Secret,
++                    s3Region);
++        }
++        executeSql(conn, secretSql);
++
++        if (isDuckLake) {
++            // Install and load PostgreSQL scanner extension
++            try {
++                executeSql(conn, "INSTALL postgres_scanner; LOAD postgres_scanner;");
++            } catch (SQLException e) {
++                LOG.warn("Failed to load postgres_scanner, trying postgres", e);
++                executeSql(conn, "INSTALL postgres; LOAD postgres;");
++            }
++
++            // Install and load DuckLake extension
++            try {
++                executeSql(conn, "INSTALL ducklake; LOAD ducklake;");
++            } catch (SQLException e) {
++                LOG.warn("Failed to INSTALL/LOAD ducklake, trying core_nightly", e);
++                executeSql(conn, "FORCE INSTALL ducklake FROM core_nightly; LOAD ducklake;");
++            }
++
++            // Attach DuckLake catalog backed by PostgreSQL metadata and S3 data path
++            // (DATA_INLINING_ROW_LIMIT 0 disables data inlining, creating Parquet files in S3)
++            StringBuilder connParams = new StringBuilder();
++            connParams.append(String.format("dbname=%s host=%s port=%s user=%s", pgDbName, pgHost, pgPort, pgUser));
++            if (pgPassword != null && !pgPassword.isEmpty()) {
++                connParams.append(" password=").append(pgPassword);
++            }
++
++            String attachSql = String.format(
++                    Locale.getDefault(),
++                    "ATTACH 'ducklake:postgres:%s' AS ducklake (DATA_PATH '%s', DATA_INLINING_ROW_LIMIT 0);",
++                    connParams.toString(),
++                    ducklakeDataPath);
++            executeSql(conn, attachSql);
++
++            try {
++                executeSql(conn, "CALL ducklake.set_option('data_inlining_row_limit', 0);");
++            } catch (SQLException e) {
++                LOG.debug("Setting option via CALL ducklake.set_option was not needed or not supported", e);
++            }
++
++            try {
++                executeSql(conn, "USE ducklake;");
++            } catch (SQLException e) {
++                LOG.debug("Setting default schema to ducklake failed", e);
++            }
++        }
++        return conn;
++    }
++
++    /**
++     * Creates all 1000 tables following the single integer column schema in DuckLake
++     * before starting the multi-threaded experiment.
++     */
++    private static void createDuckLakeTables(DuckDBConnection conn) throws SQLException {
++        LOG.info("Creating {} DuckLake tables with single integer column schema ({}) in catalog 'ducklake'...",
++                numTables, columnName);
++        try (Statement stmt = conn.createStatement()) {
++            for (int i = 1; i <= numTables; i++) {
++                String targetTable = tableName + i;
++                String createSql = String.format(
++                        Locale.getDefault(),
++                        "CREATE TABLE IF NOT EXISTS ducklake.%s (%s INTEGER);",
++                        targetTable,
++                        columnName);
++                stmt.execute(createSql);
++                if (i % 100 == 0 || i == numTables) {
++                    LOG.info("Created {}/{} DuckLake tables", i, numTables);
++                }
++            }
++        }
++        LOG.info("Successfully created all {} DuckLake tables.", numTables);
++    }
++
++    private static String schemaToTargetList(Schema targetSchema) {
++        List<Types.NestedField> columns = targetSchema.columns();
++        StringBuilder sb = new StringBuilder();
++        for (Types.NestedField column : columns) {
++            switch (column.type().typeId()) {
++                case INTEGER:
++                    sb.append(String.format(Locale.getDefault(), "x::INTEGER AS %s,", column.name()));
++                    break;
++                case STRING:
++                    sb.append(String.format(Locale.getDefault(), "x::VARCHAR AS %s,", column.name()));
++                    break;
++                default:
++                    break;
++            }
++        }
++        if (sb.length() > 0) {
++            sb.setLength(sb.length() - 1);
++        }
++        return sb.toString();
++    }
++
++    private static void runExp(Map<String, String> expConfigs) {
++        LocalTime duration = LocalTime.parse(durationStr);
++        runExpImpl(duration);
++
++        String expResultDir = expConfigs.get("exp_result_dir");
++        String catalogTypeStr = isDuckLake ? "ducklake" : "raven";
++
++        String logFileName = String.format(
++                Locale.getDefault(),
++                "%s/multitabletxn4-%s-%d-%d-log.json",
++                expResultDir,
++                catalogTypeStr,
++                numThreads,
++                Math.round(skew * 10));
++        String summaryFileName = String.format("%s/summary.json", expResultDir);
++
++        MetricsExporter.exportMetricsToLog(logFileName);
++        MetricsExporter.appendSummaryToJson(summaryFileName);
++    }
++
++    private static void runExpImpl(LocalTime duration) {
++        runTaskForDuration((running, threadNum) -> {
++            DuckDBConnection duckDbConn = DUCK_DB_CONNECTIONS.get(threadNum);
++            RavenCatalog ravenCatalog = isDuckLake ? null : RAVEN_CATALOGS.get(threadNum % RAVEN_CATALOGS.size());
++
++            // Worker loop: perform insert transactions until duration expires
++            while (running.get()) {
++                if (isDuckLake) {
++                    insertOpDuckLake(duckDbConn, threadNum);
++                } else {
++                    insertOpRaven(duckDbConn, ravenCatalog, threadNum);
++                }
++            }
++        }, duration.toSecondOfDay(), TimeUnit.SECONDS);
++    }
++
++    /**
++     * Executes a multi-table insert transaction in DuckLake.
++     * Wrapped in START TRANSACTION and COMMIT directly within DuckDB.
++     */
++    private static void insertOpDuckLake(DuckDBConnection duckDbConn, Integer threadNum) {
++        int numTablesToTouch = ThreadLocalRandom.current().nextInt(1, MAX_NUM_TABLES_PER_OP + 1);
++
++        // Generate tables according to Zipfian distribution
++        List<Integer> tableNumList = Stream.generate(zipfGen::getNext)
++                .distinct()
++                .limit(numTablesToTouch)
++                .collect(Collectors.toList());
++
++        Instant beforeTxn = Instant.now();
++        boolean success = false;
++
++        try (Statement stmt = duckDbConn.createStatement()) {
++            String targetList = schemaToTargetList(schema);
++
++            // Wrap multi-table transaction in START TRANSACTION and COMMIT
++            stmt.execute("START TRANSACTION;");
++
++            for (Integer tableNum : tableNumList) {
++                String targetTable = tableName + tableNum;
++                // Insert directly into the DuckLake table backed by S3 storage
++                stmt.execute(
++                        String.format(
++                                Locale.getDefault(),
++                                "INSERT INTO ducklake.%s SELECT %s FROM generate_series(1, %d) AS t(x);",
++                                targetTable,
++                                targetList,
++                                numRowsPerFile));
++            }
++
++            stmt.execute("COMMIT;");
++            success = true;
++        } catch (SQLException e) {
++            LOG.warn("DuckLake transaction failed, executing rollback", e);
++            try (Statement rollbackStmt = duckDbConn.createStatement()) {
++                rollbackStmt.execute("ROLLBACK;");
++            } catch (SQLException rollbackEx) {
++                LOG.warn("Rollback execution failed", rollbackEx);
++            }
++            success = false;
++        }
++
++        Instant afterTxn = Instant.now();
++
++        // Record end-to-end metrics
++        TXN_TIMES.get(threadNum).add(new TimePair(beforeTxn, afterTxn));
++        OP_SUCCESS.get(threadNum).add(success);
++    }
++
++    /**
++     * Executes a multi-table insert transaction in Raven.
++     * Table metadata is committed via Raven catalog, and Parquet data files are written to S3.
++     */
++    private static void insertOpRaven(DuckDBConnection duckDbConn, RavenCatalog ravenCatalog, Integer threadNum) {
++        try (Statement stmt = duckDbConn.createStatement()) {
++            int numTablesToTouch = ThreadLocalRandom.current().nextInt(1, MAX_NUM_TABLES_PER_OP + 1);
++
++            // Generate tables according to Zipfian distribution
++            List<Integer> tableNumList = Stream.generate(zipfGen::getNext)
++                    .distinct()
++                    .limit(numTablesToTouch)
++                    .collect(Collectors.toList());
++
++            Instant beforeTxn = Instant.now();
++
++            List<String> tableNames = Lists.newArrayList();
++            for (Integer tableNum : tableNumList) {
++                tableNames.add(tableName + tableNum);
++            }
++
++            List<String> filePaths = Lists.newArrayList();
++            String targetList = schemaToTargetList(schema);
++
++            // Generate data and write Parquet files to S3 once using DuckDB
++            for (int j = 0; j < tableNumList.size(); j++) {
++                stmt.execute(
++                        String.format(
++                                Locale.getDefault(),
++                                "CREATE TEMP TABLE staging_data%d AS SELECT %s FROM generate_series(1, %d) AS t(x);",
++                                threadNum,
++                                targetList,
++                                numRowsPerFile));
++                String filePath = String.format(
++                        "%s/%s.db/%s/%s.parquet",
++                        warehouseLocation,
++                        dbName,
++                        tableNames.get(j),
++                        UUID.randomUUID());
++
++                stmt.execute(
++                        String.format(
++                                Locale.getDefault(),
++                                "COPY staging_data%d TO '%s' (FORMAT PARQUET);",
++                                threadNum,
++                                filePath));
++                stmt.execute(String.format(Locale.getDefault(), "DROP TABLE staging_data%d;", threadNum));
++
++                filePaths.add(filePath);
++            }
++
++            boolean success = false;
++            double currentWaitMs = startBackoffMs;
++
++            // Commit retry loop: if commit returns false, instantiate a new ravenTxn and re-append file metadata
++            for (int attempt = 0; attempt <= numRetries; attempt++) {
++                if (attempt > 0) {
++                    // Exponential backoff with slight jitter (+/- 10%)
++                    double jitter = ThreadLocalRandom.current().nextDouble(0.9, 1.1);
++                    long sleepMs = Math.max(1L, (long) (currentWaitMs * jitter));
++                    try {
++                        TimeUnit.MILLISECONDS.sleep(sleepMs);
++                    } catch (InterruptedException ie) {
++                        Thread.currentThread().interrupt();
++                        break;
++                    }
++                    currentWaitMs *= backoffMultiplier;
++                }
++
++                try {
++                    // Start a new transaction on Raven
++                    CatalogOuterClass.StartTransactionResponse ravenTxn = ravenCatalog.startTransaction(
++                            workspaceName, dbName, tableNames);
++
++                    long txnId = ravenTxn.getTxnId();
++                    List<TableObject> unsortedTableObjects = ravenTxn.getTablesList();
++
++                    List<TableObject> tableObjects = Lists.newArrayList();
++                    for (String name : tableNames) {
++                        Optional<TableObject> tableObject = unsortedTableObjects.stream()
++                                .filter(t -> t.getTableName().equals(name))
++                                .findFirst();
++                        tableObjects.add(tableObject.get());
++                    }
++
++                    // Append metadata of the already created files to the tables in this new transaction
++                    for (int j = 0; j < tableObjects.size(); j++) {
++                        List<FileObject> newDataFiles = Lists.newArrayList();
++                        FileObject newFileObject = FileObject.newBuilder()
++                                .setTag("newdata")
++                                .setPath(filePaths.get(j))
++                                .build();
++                        newDataFiles.add(newFileObject);
++
++                        ravenCatalog.finalAppendFiles(tableObjects.get(j), newDataFiles, txnId);
++                    }
++
++                    success = ravenCatalog.commit(txnId);
++                    if (success) {
++                        break;
++                    } else {
++                        LOG.debug("Raven commit attempt {} returned false, retrying...", attempt + 1);
++                    }
++                } catch (Exception ex) {
++                    LOG.warn("Raven commit attempt failed during retry", ex);
++                    success = false;
++                }
++            }
++
++            if (!success) {
++                deleteFiles(filePaths);
++            }
++
++            Instant afterTxn = Instant.now();
++
++            // Record end-to-end metrics
++            TXN_TIMES.get(threadNum).add(new TimePair(beforeTxn, afterTxn));
++            OP_SUCCESS.get(threadNum).add(success);
++
++        } catch (Exception e) {
++            LOG.info("Database error occurred during Raven insert", e);
++        }
++    }
++
++    public static void runTaskForDuration(BiConsumer<AtomicBoolean, Integer> task, long duration, TimeUnit unit) {
++        AtomicBoolean running = new AtomicBoolean(true);
++        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
++        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
++
++        for (int i = 0; i < numThreads; i++) {
++            Integer threadId = i;
++            executor.execute(() -> task.accept(running, threadId));
++        }
++
++        @SuppressWarnings("unused")
++        Future<?> unused = scheduler.schedule(() -> {
++            running.set(false);
++            scheduler.shutdown();
++        }, duration, unit);
++
++        executor.shutdown();
++        try {
++            if (!executor.awaitTermination(duration + 15, unit)) {
++                executor.shutdownNow();
++            }
++        } catch (InterruptedException e) {
++            executor.shutdownNow();
++            Thread.currentThread().interrupt();
++        }
++    }
++
++    public static void deleteFiles(List<String> s3Paths) {
++        if (s3Paths == null || s3Paths.isEmpty() || s3 == null) {
++            return;
++        }
++
++        String bucket = URI.create(s3Paths.get(0)).getHost();
++        List<ObjectIdentifier> allKeys = Lists.newArrayListWithCapacity(s3Paths.size());
++        for (String path : s3Paths) {
++            String key = URI.create(path).getPath().substring(1);
++            allKeys.add(ObjectIdentifier.builder().key(key).build());
++        }
++
++        int chunkSize = 1000;
++        for (int i = 0; i < allKeys.size(); i += chunkSize) {
++            List<ObjectIdentifier> chunk = allKeys.subList(i, Math.min(i + chunkSize, allKeys.size()));
++
++            Delete delete = Delete.builder()
++                    .objects(chunk)
++                    .quiet(true)
++                    .build();
++
++            DeleteObjectsRequest request = DeleteObjectsRequest.builder()
++                    .bucket(bucket)
++                    .delete(delete)
++                    .build();
++
++            try {
++                s3.deleteObjects(request);
++            } catch (S3Exception e) {
++                LOG.error("AWS API error during batch delete", e);
++            }
++        }
++    }
++}
 diff --git a/exp/src/main/java/org/apache/iceberg/exp/S3ParquetStats.java b/exp/src/main/java/org/apache/iceberg/exp/S3ParquetStats.java
 new file mode 100644
 index 000000000..4b532ed8f
@@ -11606,6 +13704,105 @@ index 000000000..22976a524
 +        }
 +    }
 +}
+diff --git a/exp/src/main/resources/clear_ducklake_metadata.sql b/exp/src/main/resources/clear_ducklake_metadata.sql
+new file mode 100644
+index 000000000..cb2fb2aa8
+--- /dev/null
++++ b/exp/src/main/resources/clear_ducklake_metadata.sql
+@@ -0,0 +1,75 @@
++-- ==============================================================================
++-- Clear DuckLake PostgreSQL Metadata
++--
++-- This script completely clears out all DuckLake metadata and drops all user
++-- tables in the PostgreSQL database between experiment runs.
++--
++-- Usage:
++--   psql -h <host> -p <port> -U <user> -d <ducklake_db> -f clear_ducklake_metadata.sql
++-- Example:
++--   psql -h 127.0.0.1 -p 5432 -U postgres -d ducklakedb -f clear_ducklake_metadata.sql
++-- ==============================================================================
++
++-- 1. Drop all views in non-system schemas
++DO $$
++DECLARE
++    v RECORD;
++BEGIN
++    FOR v IN (
++        SELECT quote_ident(table_schema) || '.' || quote_ident(table_name) AS view_name
++        FROM information_schema.views
++        WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
++    ) LOOP
++        EXECUTE 'DROP VIEW IF EXISTS ' || v.view_name || ' CASCADE';
++    END LOOP;
++END $$;
++
++-- 2. Drop all tables across all user/metadata schemas
++DO $$
++DECLARE
++    t RECORD;
++BEGIN
++    FOR t IN (
++        SELECT quote_ident(schemaname) || '.' || quote_ident(tablename) AS table_name
++        FROM pg_tables
++        WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
++    ) LOOP
++        EXECUTE 'DROP TABLE IF EXISTS ' || t.table_name || ' CASCADE';
++    END LOOP;
++END $$;
++
++-- 3. Drop all sequences in non-system schemas
++DO $$
++DECLARE
++    sq RECORD;
++BEGIN
++    FOR sq IN (
++        SELECT quote_ident(sequence_schema) || '.' || quote_ident(sequence_name) AS seq_name
++        FROM information_schema.sequences
++        WHERE sequence_schema NOT IN ('pg_catalog', 'information_schema')
++    ) LOOP
++        EXECUTE 'DROP SEQUENCE IF EXISTS ' || sq.seq_name || ' CASCADE';
++    END LOOP;
++END $$;
++
++-- 4. Drop and recreate the public schema to ensure a clean slate
++DROP SCHEMA IF EXISTS public CASCADE;
++CREATE SCHEMA public;
++GRANT ALL ON SCHEMA public TO postgres;
++GRANT ALL ON SCHEMA public TO public;
++
++-- 5. Drop any custom/scoped DuckLake metadata schemas created during testing
++DO $$
++DECLARE
++    s RECORD;
++BEGIN
++    FOR s IN (
++        SELECT quote_ident(nspname) AS schema_name
++        FROM pg_namespace
++        WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'public')
++          AND nspname NOT LIKE 'pg_temp_%'
++          AND nspname NOT LIKE 'pg_toast_temp_%'
++    ) LOOP
++        EXECUTE 'DROP SCHEMA IF EXISTS ' || s.schema_name || ' CASCADE';
++    END LOOP;
++END $$;
+diff --git a/exp/src/main/resources/clear_raven_metadata.sql b/exp/src/main/resources/clear_raven_metadata.sql
+new file mode 100644
+index 000000000..b589b2a0c
+--- /dev/null
++++ b/exp/src/main/resources/clear_raven_metadata.sql
+@@ -0,0 +1,12 @@
++DROP SCHEMA public CASCADE;
++CREATE SCHEMA public;
++TRUNCATE TABLE ercat.Entity RESTART IDENTITY CASCADE;
++TRUNCATE TABLE ercat.Implements RESTART IDENTITY CASCADE;
++TRUNCATE TABLE ercat.RelationshipName RESTART IDENTITY CASCADE;
++TRUNCATE TABLE ercat.Relationship RESTART IDENTITY CASCADE;
++TRUNCATE TABLE ercat.RelationshipConstraints RESTART IDENTITY CASCADE;
++TRUNCATE TABLE ercat.AddEdges RESTART IDENTITY CASCADE;
++TRUNCATE TABLE ercat.DeleteEdges RESTART IDENTITY CASCADE;
++TRUNCATE TABLE ercat.Files RESTART IDENTITY CASCADE;
++TRUNCATE TABLE ercat.AddFiles RESTART IDENTITY CASCADE;
++TRUNCATE TABLE ercat.DeleteFiles RESTART IDENTITY CASCADE;
 diff --git a/gradle/libs.versions.toml b/gradle/libs.versions.toml
 index eeabe54f5..be8d17751 100644
 --- a/gradle/libs.versions.toml

@@ -336,6 +336,7 @@ On Node 4, create a configuration json file for the experiment. Example file is 
 * workspace_name : Name of the workspace.
 * db_name : Name of the database.
 * table_name : Name of the table.
+* num_threads : Number of client threads.
 * num_rows_per_file : Number of rows per file.
 * warehouse_location : Path of the database.
 * s3_secret : AWS secret key for S3.
@@ -348,6 +349,121 @@ Run the experiment:
 ```bash
 java -cp "<iceberg_path>/exp/build/install/iceberg-exp/lib/*" \
     org.apache.iceberg.exp.MultiTableTxn3 <config_path>
+```
+
+## Multi-Table Transactions Experiment 4
+An experiment for evaluating multi-table transaction implementation of Raven against DuckLake. Unlike previous experiment workload is simpler (only insert operations), but same set of paramaters are tested (# client threads and skew).  
+
+Delete all files created as a result of any previous experiment run in S3, using AWS console.
+
+On Node 1, run <raven_path>/experiments/metadatastore/clean.sql
+
+On Node 2, run the following to set up the catalog service
+```bash
+<raven_path>/build/src/setup <raven_path>/experiments/catalogservice/config.txt <raven_path>/experiments/catalogservice/setup.erql <raven_path>/experiments/catalogservice/populate2.erql
+<raven_path>/build/src/server <raven_path>/experiments/catalogservice/config.txt
+```
+
+On Node 3, run the garbage collector
+```bash
+<raven_path>/build/src/rungc <raven_path>/experiments/catalogservice/config.txt
+```
+
+For DuckLake, previous steps are not necessary, except clearing out the entire backend PostgreSQL database (run <raven_path>/experiments/ducklake/clean.sql).
+
+On Node 4, create a configuration json file for the experiment. Example file is under multitabletxn4/. The cofiguration parameters are as follows:
+* is_duck_lake : Whether the system is DuckLake (Raven otherwise).
+* skew : Skew parameter for controlling contention.
+* duration : Duration of the experiment.
+* workspace_name : Name of the workspace.
+* db_name : Name of the database.
+* table_name : Name of the table.
+* num_threads : Number of client threads.
+* num_rows_per_file : Number of rows per file.
+* warehouse_location : Path of the database.
+* s3_secret : AWS secret key for S3.
+* s3_key_id : AWS access key for S3.
+* s3_region : AWS region for S3.
+* raven_address : Host address of the catalog service (gRPC).
+* pg_host : PostgreSQL host for DuckLake / Raven.
+* pg_port : PostgreSQL port for DuckLake / Raven.
+* pg_user : PostgreSQL user for DuckLake / Raven.
+* pg_password : PostgreSQL password for DuckLake / Raven.
+* pg_db_name : PostgreSQL database name for DuckLake /Raven.
+* ducklake_data_path : Data path for DuckLake tables.
+* exp_result_dir : Output directory for the experimental result.
+
+Run the experiment:
+```bash
+java -cp "<iceberg_path>/exp/build/install/iceberg-exp/lib/*" \
+    org.apache.iceberg.exp.MultiTableTxn4 <config_path>
+```
+
+## Metadata Footprint Experiment
+An experiment for evaluating the relative metadata overhead of Raven and DuckLake. It measures the overall metadata footprint and read performance (random row selection) as a function of table column count. 
+
+Delete all files created as a result of any previous experiment run in S3, using AWS console.
+
+On Node 1, run <raven_path>/experiments/metadatastore/clean.sql
+
+On Node 2, run the following to set up the catalog service
+```bash
+<raven_path>/build/src/setup <raven_path>/experiments/catalogservice/config.txt <raven_path>/experiments/catalogservice/setup.erql <raven_path>/experiments/catalogservice/populate.erql
+<raven_path>/build/src/server <raven_path>/experiments/catalogservice/config.txt
+```
+
+On Node 3, run the garbage collector
+```bash
+<raven_path>/build/src/rungc <raven_path>/experiments/catalogservice/config.txt
+```
+
+On Node 4, start embedded HMS:
+```bash
+tmux new -s hms
+rm -rf metastore_db/
+
+schematool -dbType derby -initSchema
+
+hive --service metastore
+```
+
+For DuckLake, previous steps are not necessary, except clearing out the entire backend PostgreSQL database (run <raven_path>/experiments/ducklake/clean.sql).
+
+On Node 4, create a configuration json file for the experiment. Example file is under metadatafootprint/. In the configuration, set the "mode" to "populate". The cofiguration parameters are as follows:
+* mode : Populate the database & measure metadata footprint if it is "populate". If it is read, measure random read performance.
+* is_duck_lake : Whether the system is DuckLake (Raven otherwise).
+* num_files : Number of data files.
+* num_columns : Number of columns.
+* batch_size : The batch size (number of files) for populating the data.
+* num_threads : Number of threads to use for populating the data.
+* num_measures : Number of measurements to take for read mode.
+* workspace_name : Name of the workspace.
+* db_name : Name of the database.
+* table_name : Name of the table.
+* warehouse_location : Path of the database.
+* s3_secret : AWS secret key for S3.
+* s3_key_id : AWS access key for S3.
+* s3_region : AWS region for S3.
+* raven_address : Host address of the catalog service (gRPC).
+* hms_uri : Host Address of local HMS.
+* pg_host : PostgreSQL host for DuckLake / Raven.
+* pg_port : PostgreSQL port for DuckLake / Raven.
+* pg_user : PostgreSQL user for DuckLake / Raven.
+* pg_password : PostgreSQL password for DuckLake / Raven.
+* pg_db_name : PostgreSQL database name for DuckLake /Raven.
+* ducklake_data_path : Data path for DuckLake tables.
+* exp_result_dir : Output directory for the experimental result.
+
+Run the experiment to populate the data:
+```bash
+java -cp "<iceberg_path>/exp/build/install/iceberg-exp/lib/*" \
+    org.apache.iceberg.exp.MetadataFootprint <config_path>
+```
+
+In the configuration file, change the "mode" to "read" and run the experiment to evaluate the read performance:
+```bash
+java -cp "<iceberg_path>/exp/build/install/iceberg-exp/lib/*" \
+    org.apache.iceberg.exp.MetadataFootprint <config_path>
 ```
 
 ## GC Experiment1
